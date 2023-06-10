@@ -11,11 +11,6 @@ static const char TAG[] = "Faikin";
 #include "esp_http_server.h"
 #include <math.h>
 #include "mdns.h"
-#include "ela.h"
-
-#ifndef	CONFIG_HTTPD_WS_SUPPORT
-#error Need CONFIG_HTTPD_WS_SUPPORT
-#endif
 
 #define	STX	2
 #define	ETX	3
@@ -488,7 +483,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
       jo_base16 (j, "dump", buf, txlen + 5);
       revk_info ("tx", &j);
    }
-   uart_write_bytes (uart, buf, 5 + txlen);
+   uart_write_bytes (uart, (char *)buf, 5 + txlen);
    // Wait ACK
    int rxlen = uart_read_bytes (uart, &temp, 1, 100 / portTICK_PERIOD_MS);
    if (rxlen != 1 || temp != ACK)
@@ -549,7 +544,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
    }
    // Send ACK regardless, data is repeated, so will be sent again if we ignore due to checksum, for example.
    temp = ACK;
-   uart_write_bytes (uart, &temp, 1);
+   uart_write_bytes (uart, (char *)&temp, 1);
    if (dump)
    {
       jo_t j = jo_comms_alloc ();
@@ -616,7 +611,7 @@ daikin_command (uint8_t cmd, int txlen, uint8_t * payload)
       jo_base16 (j, "dump", buf, txlen + 6);
       revk_info ("tx", &j);
    }
-   uart_write_bytes (uart, buf, 6 + txlen);
+   uart_write_bytes (uart, (char *)buf, 6 + txlen);
    // Wait for reply
    int rxlen = uart_read_bytes (uart, buf, sizeof (buf), 100 / portTICK_PERIOD_MS);
    if (rxlen <= 0)
@@ -1211,6 +1206,8 @@ web_root (httpd_req_t * req)
    return web_foot (req);
 }
 
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+
 static esp_err_t
 web_status (httpd_req_t * req)
 {                               // Web socket status report
@@ -1269,6 +1266,8 @@ web_status (httpd_req_t * req)
    free (buf);
    return status ();
 }
+
+#endif
 
 static esp_err_t
 web_get_control_info (httpd_req_t * req)
@@ -1544,20 +1543,12 @@ app_main ()
          .data_bits = UART_DATA_8_BITS,
          .parity = UART_PARITY_EVEN,
          .stop_bits = s21 ? UART_STOP_BITS_2 : UART_STOP_BITS_1,
-         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-         .source_clk = UART_SCLK_DEFAULT,
+         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
       };
       if (!err)
          err = uart_param_config (uart, &uart_config);
       if (!err)
-         err = uart_set_pin (uart, port_mask (tx), port_mask (rx), -1, -1);
-      if (!err && ((tx & PORT_INV) || (rx & PORT_INV)))
-         err =
-            uart_set_line_inverse (uart, ((rx & PORT_INV) ? UART_SIGNAL_RXD_INV : 0) | ((tx & PORT_INV) ? UART_SIGNAL_TXD_INV : 0));
-      if (!err)
          err = uart_driver_install (uart, 1024, 0, 0, NULL, 0);
-      if (!err)
-         err = uart_set_rx_full_threshold (uart, 1);
       if (err)
       {
          jo_t j = jo_object_alloc ();
@@ -1601,6 +1592,7 @@ app_main ()
             };
             REVK_ERR_CHECK (httpd_register_uri_handler (webserver, &uri));
          }
+#ifdef CONFIG_HTTPD_WS_SUPPORT
          {
             httpd_uri_t uri = {
                .uri = "/status",
@@ -1610,6 +1602,7 @@ app_main ()
             };
             REVK_ERR_CHECK (httpd_register_uri_handler (webserver, &uri));
          }
+#endif
          {
             httpd_uri_t uri = {
                .uri = "/aircon/get_control_info",
