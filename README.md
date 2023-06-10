@@ -1,14 +1,29 @@
-# ESP32-Faikin
+# ESP8266-Faikin
 
-Everyone knows Daikin make some of the best air conditioners out there, mechanically speaking. But their implementation of IoT (Internet of Things); remote control over the Internet -  leaves a lot to be desired. Their app is not well supported, and does not work well. If you are planning on integrating your air conditioners into something like an MQTT set up in your home or office, or simply want very basic web control / status for your units, this unit provides these features. It plugs in where the old Daikin WiFi module goes. The code is being updated from time to time and now incldues Home Assistant integration.
+I am successfully running a great Daikin air conditioning unit in an OpenHAB-powered smart home. Recently i purchased a second one for my newly
+remodeled bedroom; and was very "pleased" to see that original BRP online controller is not available for sale in my country any more due to
+political reasons. There was, however, a locally developed replacement, which is, of course, not compatible with the original. Additionally it
+forces me to use their proprietary cloud; not only potentially disclosing some of my privacy, but also tying my smart home to a working Internet
+connection for no reason.
 
-This is code and PCB design to run on an ESP32 module and connect to a Daikin aircon unit in place of a BRP069B41, BRP069C41, or similar modules.
+Fortunately i was able not only to find some information on successfully reverse engineered Daikin "S21" communication protocol, but also find
+an awesome [ESP32-Faikin](https://github.com/revk/ESP32-Faikin/tree/main/main) project, which does the majority of the thing i need.
 
-Buy on [Amazon](https://www.amazon.co.uk/dp/B0C2ZYXNYQ) This is UK only as Amazon won't export it for some readon, but one customer had success using [Forward2Me](https://www.forward2me.com/) to order on Amazon and export.
+My newly purchased controller, named "Daichi" (which of course has nothing to do with the japanese company), is a small board, built around
+an [AI Thinker ESP12](https://docs.ai-thinker.com/_media/esp8266/docs/esp-12f_product_specification_en.pdf) module. Therefore this project'sale
+goals are:
 
-## Why I made this
+- Backport ESP32-Faikin to ESP8266 architecture
+- Support original HTTP+JSON-based BRP communication protocol, at least enough to support OpenHAB
 
-The history is that, after years of using Daikin air-con in my old home, and using the local http control, in my new house in Wales the WiFi was all cloud based with no local control, and useless, and slow. Just configuring it was a nightmare. I spent all day reverse engineering it and making a new module to provide local control. Pull requests and feature ideas welcome.
+Since various ESP8266-based hardware is widely accessible, am making this project opensource. A (partly) reverse-engineered Daichi controller
+schematic is available in "Hardware" folder for those who would be interested in implementing their own board based on this or similar ESP8266
+module. Since violating someone else's possible design copyrights is not the goal of this project, the schematic is incomplete. It does not
+contain exact values for parts (many of these are impossible to determine without complete disassembly), it's only enough for use as a referense,
+to understand how the module is interfaced and what pins are in use. There's nothing special to that really; any electronics engineer is able to
+put together such a board with minimum efforts.
+
+At the moment of writing this project doesn't work yet; it is a work in progress.
 
 # Set-up
 
@@ -43,6 +58,8 @@ Basically, Daikin have gone all cloudy with the latest WiFi controllers. This mo
 * Backwards compatible `/aircon/get_control_info` and `/aircon/set_control_info` URLs (work in progress)
 
 # Building
+
+The build requires [ESP8266 RTOS SDK v3.x](https://docs.espressif.com/projects/esp8266-rtos-sdk/en/latest/)
 
 Git clone this `--recursive` to get all the submodules, and it should build with just `make`. There are make targets for other variables, but this hardware is the `make pico` version. The `make` actually runs the normal `idf.py` to build with then uses cmake. `make menuconfig` can be used to fine tune the settings, but the defaults should be mostly sane. `make flash` should work to program. You will need a programming lead, e.g. [Tazmotizer](https://github.com/revk/Shelly-Tasmotizer-PCB) or similar, and of course the full ESP IDF environment.
 
