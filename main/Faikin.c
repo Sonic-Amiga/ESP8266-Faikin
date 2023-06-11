@@ -19,6 +19,9 @@ static const char TAG[] = "Faikin";
 #define	NAK	21
 
 // Macros for setting values
+// They set new values for parameters inside the big "daikin" state struct
+// and also set appropriate flags, so that changes are picked up by the main
+// loop and commands are sent to the aircon to apply the settings
 #define	daikin_set_v(name,value)	daikin_set_value(#name,&daikin.name,CONTROL_##name,value)
 #define	daikin_set_i(name,value)	daikin_set_int(#name,&daikin.name,CONTROL_##name,value)
 #define	daikin_set_e(name,value)	daikin_set_enum(#name,&daikin.name,CONTROL_##name,value,CONTROL_##name##_VALUES)
@@ -702,6 +705,7 @@ daikin_command (uint8_t cmd, int txlen, uint8_t * payload)
    daikin_response (cmd, rxlen - 6, buf + 5);
 }
 
+// Parse state JSON and apply values (?)
 const char *
 daikin_control (jo_t j)
 {                               // Control settings as JSON
@@ -773,9 +777,10 @@ daikin_control (jo_t j)
 }
 
 // --------------------------------------------------------------------------------
-const char *
-app_callback (int client, const char *prefix, const char *target, const char *suffix, jo_t j)
-{                               // MQTT app callback
+// Called by an MQTT client inside the revk library
+static const char *
+mqtt_client_callback (int client, const char *prefix, const char *target, const char *suffix, jo_t j)
+{
    const char *ret = NULL;
    if (client || !prefix || target || strcmp (prefix, prefixcommand))
       return NULL;              // Not for us or not a command from main MQTT
@@ -1529,6 +1534,35 @@ ha_status (void)
    revk_mqtt_send_clients (NULL, 1, revk_id, &j, 1);
 }
 
+void uart_setup (void)
+{
+   esp_err_t err = 0;
+   if (!protocol_set)
+      s21 = 1 - s21;         // Flip
+   ESP_LOGI (TAG, "Starting UART%s", s21 ? " S21" : "");
+   uart_config_t uart_config = {
+      .baud_rate = s21 ? 2400 : 9600,
+      .data_bits = UART_DATA_8_BITS,
+      .parity = UART_PARITY_EVEN,
+      .stop_bits = s21 ? UART_STOP_BITS_2 : UART_STOP_BITS_1,
+      .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
+   };
+   if (!err)
+      err = uart_param_config (uart, &uart_config);
+   if (!err)
+      err = uart_driver_install (uart, 1024, 0, 0, NULL, 0);
+   if (err)
+   {
+      jo_t j = jo_object_alloc ();
+      jo_string (j, "error", "Failed to uart");
+      jo_int (j, "uart", uart);
+      jo_int (j, "gpio", port_mask (rx));
+      jo_string (j, "description", esp_err_to_name (err));
+      revk_error ("uart", &j);
+      return;
+   }
+}
+
 // --------------------------------------------------------------------------------
 // Main
 void
@@ -1539,7 +1573,7 @@ app_main ()
 #define	t(name)	daikin.name=NAN;
 #define	r(name)	daikin.min##name=NAN;daikin.max##name=NAN;
 #include "acextras.m"
-   revk_boot (&app_callback);
+   revk_boot (&mqtt_client_callback);
 #define str(x) #x
 #define io(n,d)           revk_register(#n,0,sizeof(n),&n,"- "str(d),SETTING_SET|SETTING_BITFIELD);
 #define b(n,d) revk_register(#n,0,sizeof(n),&n,str(d),SETTING_BOOLEAN);
@@ -1562,36 +1596,8 @@ app_main ()
 #undef bl
 #undef s
 #undef sl
-      revk_start ();
+   revk_start ();
    revk_blink (0, 0, "");
-   void uart_setup (void)
-   {
-      esp_err_t err = 0;
-      if (!protocol_set)
-         s21 = 1 - s21;         // Flip
-      ESP_LOGI (TAG, "Starting UART%s", s21 ? " S21" : "");
-      uart_config_t uart_config = {
-         .baud_rate = s21 ? 2400 : 9600,
-         .data_bits = UART_DATA_8_BITS,
-         .parity = UART_PARITY_EVEN,
-         .stop_bits = s21 ? UART_STOP_BITS_2 : UART_STOP_BITS_1,
-         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
-      };
-      if (!err)
-         err = uart_param_config (uart, &uart_config);
-      if (!err)
-         err = uart_driver_install (uart, 1024, 0, 0, NULL, 0);
-      if (err)
-      {
-         jo_t j = jo_object_alloc ();
-         jo_string (j, "error", "Failed to uart");
-         jo_int (j, "uart", uart);
-         jo_int (j, "gpio", port_mask (rx));
-         jo_string (j, "description", esp_err_to_name (err));
-         revk_error ("uart", &j);
-         return;
-      }
-   }
 
    // Web interface
    httpd_config_t config = HTTPD_DEFAULT_CONFIG ();
