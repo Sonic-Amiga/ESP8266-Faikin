@@ -1304,6 +1304,28 @@ web_status (httpd_req_t * req)
 #endif
 
 static esp_err_t
+web_get_basic_info (httpd_req_t * req)
+{
+   // Full string from my BRP module:
+   // ret=OK,type=aircon,reg=eu,dst=0,ver=3_3_9,pow=0,err=0,location=0,name=%4c%69%76%69%6e%67%20%72%6f%6f%6d,
+   // icon=2,method=home only,port=30050,id=,pw=,lpw_flag=0,adp_kind=2,pv=2,cpv=2,cpv_minor=00,led=1,en_setzone=1,
+   // mac=<my_mac>,adp_mode=run,en_hol=0,ssid1=<my_ssid>,radio1=-60,grp_name=,en_grp=0
+   httpd_resp_set_type (req, "text/plain");
+   char resp[1000],
+    *o = resp;
+
+   // Report something. In fact OpenHAB only uses this URL for discovery,
+   // and only checks for ret=OK.
+   o += sprintf (o, "ret=OK,type=aircon,reg=eu");
+   o += sprintf (o, ",mac=%02X%02X%02X%02X%02X%02X", revk_mac[0], revk_mac[1], revk_mac[2],
+                                                     revk_mac[3], revk_mac[4], revk_mac[5]);
+   o += sprintf (o, ",ssid1=%s", revk_wifi());
+
+   httpd_resp_sendstr (req, resp);
+   return ESP_OK;
+}
+
+static esp_err_t
 web_get_control_info (httpd_req_t * req)
 {
    httpd_resp_set_type (req, "text/plain");
@@ -1366,6 +1388,130 @@ web_set_control_info (httpd_req_t * req)
    }
    httpd_resp_set_type (req, "text/plain");
    httpd_resp_sendstr (req, "ret=OK,adv=");
+   return ESP_OK;
+}
+
+static esp_err_t
+web_get_sensor_info (httpd_req_t * req)
+{
+   // ret=OK,htemp=23.0,hhum=-,otemp=17.0,err=0,cmpfreq=0
+   httpd_resp_set_type (req, "text/plain");
+   char resp[1000],
+    *o = resp;
+
+   o += sprintf (o, "ret=OK");
+   o += sprintf (o, "temp="); // Indoor temperature
+   if (daikin.status_known & CONTROL_home)
+      o += sprintf (o, "%.2f", daikin.home);
+   else
+      *o++ = '=';
+   o += sprintf (o, ",hhum=-"); // Indoor humidity, not supported (yet)
+   o += sprintf (o, ",otemp="); // Outdoor temperature
+   if (daikin.status_known & CONTROL_outside)
+      o += sprintf (o, "%.2f", daikin.home);
+   else
+      *o++ = '-';
+   o += sprintf (o, ",cmpfreq=-"); // Compressor frequency, not supported (yet)
+
+   httpd_resp_sendstr (req, resp);
+   return ESP_OK;
+}
+
+static esp_err_t
+web_register_terminal (httpd_req_t * req)
+{
+   // This is called with "?key=<security_key>" parameter if any other URL
+   // responds with 403. It's supposed that we remember our client and enable access.
+   // We don't support authentication currently, so let's just return OK
+   // However, it could be a nice idea to have in future
+   httpd_resp_set_type (req, "text/plain");
+   char resp[1000],
+    *o = resp;
+
+   o += sprintf (o, "ret=OK");
+
+   httpd_resp_sendstr (req, resp);
+   return ESP_OK;
+}
+
+static esp_err_t
+web_get_year_power (httpd_req_t * req)
+{
+   // ret=OK,curr_year_heat=0/0/0/0/0/0/0/0/0/0/0/0,prev_year_heat=0/0/0/0/0/0/0/0/0/0/0/0,curr_year_cool=0/0/0/0/0/0/0/0/0/0/0/0,prev_year_cool=0/0/0/0/0/0/0/0/0/0/0/0
+   httpd_resp_set_type (req, "text/plain");
+   char resp[1000],
+    *o = resp;
+
+   // Have no idea how to implement it, perhaps the original module keeps some internal statistics.
+   // For now let's just prevent errors in OpenHAB and return an empty OK response
+   // Note all zeroes from my BRP
+   o += sprintf (o, "ret=OK");
+
+   httpd_resp_sendstr (req, resp);
+   return ESP_OK;
+}
+
+static esp_err_t
+web_get_week_power (httpd_req_t * req)
+{
+   // ret=OK,s_dayw=2,week_heat=0/0/0/0/0/0/0/0/0/0/0/0/0/0,week_cool=0/0/0/0/0/0/0/0/0/0/0/0/0/0
+   httpd_resp_set_type (req, "text/plain");
+   char resp[1000],
+    *o = resp;
+
+   // Have no idea how to implement it, perhaps the original module keeps some internal statistics.
+   // For now let's just prevent errors in OpenHAB and return an empty OK response
+   // Note all zeroes from my BRP
+   o += sprintf (o, "ret=OK");
+
+   httpd_resp_sendstr (req, resp);
+   return ESP_OK;
+}
+
+static esp_err_t
+web_set_special_mode (httpd_req_t * req)
+{
+   httpd_resp_set_type (req, "text/plain");
+   char resp[1000],
+   *o = resp;
+
+   if (httpd_req_get_url_query_len (req))
+   {
+      char query[200];
+      if (!httpd_req_get_url_query_str (req, query, sizeof (query)))
+      {
+         char mode[6], value[2];
+
+         if (!httpd_query_key_value (query, "spmode_kind", mode, sizeof (mode)) &&
+             !httpd_query_key_value (query, "set_spmode", value, sizeof (value)))
+         {
+            // TODO
+            if (!strcmp(mode, "13")) {
+               // STREAMER
+            } else if (!strcmp(mode, "12")) {
+               // ECO
+            } else if (!strcmp(mode, "2")) {
+               // POWERFUL
+            } else if (!strcmp(mode, "2/13")) {
+               // POWERFUL_STREAMER
+            } else if (!strcmp(mode, "12/13")) {
+               // ECO_STREAMER
+            }
+
+            // "value" is "1" or "0"
+
+            o += sprintf (o, "ret=OK");
+
+            httpd_resp_sendstr (req, resp);
+            return ESP_OK;
+         }
+      }
+   }
+
+   // This is reported by my BRP on malformed request
+   o += sprintf (o, "ret=PARAM NG,adv=");
+   httpd_resp_sendstr (req, resp);
+
    return ESP_OK;
 }
 
@@ -1563,6 +1709,16 @@ void uart_setup (void)
    }
 }
 
+static void register_get_uri(const char *uri, esp_err_t (*handler)(httpd_req_t *r))
+{
+   httpd_uri_t uri_struct = {
+      .uri = uri,
+      .method = HTTP_GET,
+      .handler = handler,
+   };
+   REVK_ERR_CHECK (httpd_register_uri_handler (webserver, &uri_struct));
+}
+
 // --------------------------------------------------------------------------------
 // Main
 void
@@ -1605,30 +1761,11 @@ app_main ()
    {
       if (webcontrol)
       {
-         {
-            httpd_uri_t uri = {
-               .uri = "/",
-               .method = HTTP_GET,
-               .handler = web_root,
-            };
-            REVK_ERR_CHECK (httpd_register_uri_handler (webserver, &uri));
-         }
-         {
-            httpd_uri_t uri = {
-               .uri = "/apple-touch-icon.png",
-               .method = HTTP_GET,
-               .handler = web_icon,
-            };
-            REVK_ERR_CHECK (httpd_register_uri_handler (webserver, &uri));
-         }
+         register_get_uri("/", web_root);
+         register_get_uri("/apple-touch-icon.png", web_icon);
          if (webcontrol >= 2)
          {
-            httpd_uri_t uri = {
-               .uri = "/wifi",
-               .method = HTTP_GET,
-               .handler = revk_web_config,
-            };
-            REVK_ERR_CHECK (httpd_register_uri_handler (webserver, &uri));
+            register_get_uri("/wifi", revk_web_config);
          }
 #ifdef CONFIG_HTTPD_WS_SUPPORT
          {
@@ -1641,22 +1778,14 @@ app_main ()
             REVK_ERR_CHECK (httpd_register_uri_handler (webserver, &uri));
          }
 #endif
-         {
-            httpd_uri_t uri = {
-               .uri = "/aircon/get_control_info",
-               .method = HTTP_GET,
-               .handler = web_get_control_info,
-            };
-            REVK_ERR_CHECK (httpd_register_uri_handler (webserver, &uri));
-         }
-         {
-            httpd_uri_t uri = {
-               .uri = "/aircon/set_control_info",
-               .method = HTTP_GET,
-               .handler = web_set_control_info,
-            };
-            REVK_ERR_CHECK (httpd_register_uri_handler (webserver, &uri));
-         }
+         register_get_uri("/common/basic_info", web_get_basic_info);
+         register_get_uri("/aircon/get_control_info", web_get_control_info);
+         register_get_uri("/aircon/set_control_info", web_set_control_info);
+         register_get_uri("/aircon/get_sensor_info", web_get_sensor_info);
+         register_get_uri("/common/register_terminal", web_register_terminal);
+         register_get_uri("/aircon/get_year_power_ex", web_get_year_power);
+         register_get_uri("/aircon/get_week_power_ex", web_get_week_power);
+         register_get_uri("/aircon/set_special_mode", web_set_special_mode);
       }
       revk_web_config_start (webserver);
    }
