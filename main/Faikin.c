@@ -1400,15 +1400,15 @@ web_get_sensor_info (httpd_req_t * req)
     *o = resp;
 
    o += sprintf (o, "ret=OK");
-   o += sprintf (o, "temp="); // Indoor temperature
+   o += sprintf (o, ",temp="); // Indoor temperature
    if (daikin.status_known & CONTROL_home)
       o += sprintf (o, "%.2f", daikin.home);
    else
-      *o++ = '=';
+      *o++ = '-';
    o += sprintf (o, ",hhum=-"); // Indoor humidity, not supported (yet)
    o += sprintf (o, ",otemp="); // Outdoor temperature
    if (daikin.status_known & CONTROL_outside)
-      o += sprintf (o, "%.2f", daikin.home);
+      o += sprintf (o, "%.2f", daikin.outside);
    else
       *o++ = '-';
    o += sprintf (o, ",cmpfreq=-"); // Compressor frequency, not supported (yet)
@@ -1709,6 +1709,14 @@ void uart_setup (void)
    }
 }
 
+static void register_uri(const httpd_uri_t* uri_struct)
+{
+   esp_err_t res = httpd_register_uri_handler (webserver, uri_struct);
+   if (res != ESP_OK) {
+       ESP_LOGE (TAG, "Failed to register %s, error code %d", uri_struct->uri, res);
+   }
+}
+
 static void register_get_uri(const char *uri, esp_err_t (*handler)(httpd_req_t *r))
 {
    httpd_uri_t uri_struct = {
@@ -1716,8 +1724,28 @@ static void register_get_uri(const char *uri, esp_err_t (*handler)(httpd_req_t *
       .method = HTTP_GET,
       .handler = handler,
    };
-   REVK_ERR_CHECK (httpd_register_uri_handler (webserver, &uri_struct));
+
+   register_uri(&uri_struct);
 }
+
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+
+static void register_ws_uri(const char *uri, esp_err_t (*handler)(httpd_req_t *r))
+{
+   httpd_uri_t uri = {
+      .uri = uri,
+      .method = HTTP_GET,
+      .handler = handler,
+      .is_websocket = true,
+   };
+
+   register_uri(&uri_struct);
+}
+
+#else
+// 'handler' also doesn't exist, so we are using #define here
+#define register_ws_uri(uri, handler)
+#endif
 
 // --------------------------------------------------------------------------------
 // Main
@@ -1757,6 +1785,10 @@ app_main ()
 
    // Web interface
    httpd_config_t config = HTTPD_DEFAULT_CONFIG ();
+
+   // When updating the code below, make sure this is enough
+   config.max_uri_handlers = 12;
+
    if (!httpd_start (&webserver, &config))
    {
       if (webcontrol)
@@ -1767,17 +1799,7 @@ app_main ()
          {
             register_get_uri("/wifi", revk_web_config);
          }
-#ifdef CONFIG_HTTPD_WS_SUPPORT
-         {
-            httpd_uri_t uri = {
-               .uri = "/status",
-               .method = HTTP_GET,
-               .handler = web_status,
-               .is_websocket = true,
-            };
-            REVK_ERR_CHECK (httpd_register_uri_handler (webserver, &uri));
-         }
-#endif
+         register_ws_uri("/status", web_status);
          register_get_uri("/common/basic_info", web_get_basic_info);
          register_get_uri("/aircon/get_control_info", web_get_control_info);
          register_get_uri("/aircon/set_control_info", web_set_control_info);
