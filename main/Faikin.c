@@ -972,7 +972,7 @@ web_head (httpd_req_t * req, const char *title)
                              "select{min-height:34px;border-radius:34px;background-color:#ccc;border:1px solid gray;color:black;box-shadow:3px 3px 3px #0008;}" //
                              "input.temp{min-width:300px;}"     //
                              "input.time{min-height:34px;min-width:64px;border-radius:34px;background-color:#ccc;border:1px solid gray;color:black;box-shadow:3px 3px 3px #0008;}"      //
-                             "</style><body><h1>");
+                             "</style><body onLoad=\"handleLoad()\"><h1>");
    if (title)
       httpd_resp_sendstr_chunk (req, title);
    httpd_resp_sendstr_chunk (req, "</h1>");
@@ -1098,7 +1098,7 @@ web_root (httpd_req_t * req)
       httpd_resp_sendstr_chunk (req, "',this.value);\"></td>");
    }
    httpd_resp_sendstr_chunk (req, "<tr>");
-   addb ("⏻", "power");
+   addb ("Power", "power");
    httpd_resp_sendstr_chunk (req, "</tr>");
    add ("Mode", "mode", "Auto", "A", "Heat", "H", "Cool", "C", "Dry", "D", "Fan", "F", NULL);
    if (fanstep == 1 || (!fanstep && s21))
@@ -1194,114 +1194,87 @@ web_root (httpd_req_t * req)
    if (webcontrol >= 2)
       httpd_resp_sendstr_chunk (req, "<p><a href='wifi'>Settings</a></p>");
    httpd_resp_sendstr_chunk (req, "<script>"    //
-                             "var ws=0;"        //
-                             "var reboot=0;"    //
                              "function g(n){return document.getElementById(n);};"       //
                              "function b(n,v){var d=g(n);if(d)d.checked=v;}"    //
                              "function h(n,v){var d=g(n);if(d)d.style.display=v?'block':'none';}"       //
                              "function s(n,v){var d=g(n);if(d)d.textContent=v;}"        //
                              "function n(n,v){var d=g(n);if(d)d.value=v;}"      //
                              "function e(n,v){var d=g(n+v);if(d)d.checked=true;}"       //
-                             "function w(n,v){var m=new Object();m[n]=v;ws.send(JSON.stringify(m))}"    //
-                             "function c(){"    //
-                             "ws=new WebSocket('ws://'+window.location.host+'/status');"        //
-                             "ws.onopen=function(v){g('top').className='on';};" //
-                             "ws.onclose=function(v){ws=undefined;g('top').className='off';if(reboot)location.reload();};"      //
-                             "ws.onerror=function(v){ws.close();};"     //
-                             "ws.onmessage=function(v){"        //
-                             "o=JSON.parse(v.data);"    //
-                             "b('power',o.power);"      //
-                             "h('offline',!o.online);"  //
-                             "h('control',o.control);"  //
-                             "h('slave',o.slave);"      //
-                             "h('remote',!o.remote);"   //
-                             "b('swingh',o.swingh);"    //
-                             "b('swingv',o.swingv);"    //
-                             "b('econo',o.econo);"      //
-                             "e('mode',o.mode);"        //
-                             "s('Temp',(o.home?o.home+'℃':'---')+(o.env?' / '+o.env+'℃':''));"      //
-                             "n('temp',o.temp);"        //
-                             "s('Ttemp',(o.temp?o.temp+'℃':'---')+(o.control?'✷':''));"     //
-                             "b('autop',o.autop);"      //
-                             "n('autot',o.autot);"      //
-                             "e('autor',o.autor);"      //
-                             "n('autob',o.autob);"      //
-                             "n('auto0',o.auto0);"      //
-                             "n('auto1',o.auto1);"      //
-                             "s('Tautot',(o.autot?o.autot+'℃':''));"  //
-                             "s('Coil',(o.liquid?o.liquid+'℃':'---'));"       //
-                             "s('⏻',(o.slave?'❋':'')+(o.antifreeze?'❄':''));"     //
-                             "s('Fan',(o.fanrpm?o.fanrpm+'RPM':'')+(o.antifreeze?'❄':'')+(o.control?'✷':''));"      //
-                             "e('fan',o.fan);"  //
-                             "if(o.shutdown){reboot=true;s('shutdown','Restarting: '+o.shutdown);h('shutdown',true);};" //
-                             "};};c();" //
-                             "setInterval(function() {if(!ws)c();else ws.send('');},1000);"     //
+                             "function w(n,v){}"    // TODO: Set
+                             "function decode(rt)"
+                             "{"
+                                "g('top').className='on';"
+	                             "o=JSON.parse(rt);"
+                                "b('power',o.power);"      //
+                                "h('offline',!o.online);"  //
+                                "h('control',o.control);"  //
+                                "h('slave',o.slave);"      //
+                                "h('remote',!o.remote);"   //
+                                "b('swingh',o.swingh);"    //
+                                "b('swingv',o.swingv);"    //
+                                "b('econo',o.econo);"      //
+                                "e('mode',o.mode);"        //
+                                "s('Temp',(o.home?o.home+'℃':'---')+(o.env?' / '+o.env+'℃':''));"      //
+                                "n('temp',o.temp);"        //
+                                "s('Ttemp',(o.temp?o.temp+'℃':'---')+(o.control?'✷':''));"     //
+                                "b('autop',o.autop);"      //
+                                "n('autot',o.autot);"      //
+                                "e('autor',o.autor);"      //
+                                "n('autob',o.autob);"      //
+                                "n('auto0',o.auto0);"      //
+                                "n('auto1',o.auto1);"      //
+                                "s('Tautot',(o.autot?o.autot+'℃':''));"  //
+                                "s('Coil',(o.liquid?o.liquid+'℃':'---'));"       //
+                                "s('⏻',(o.slave?'❋':'')+(o.antifreeze?'❄':''));"     //
+                                "s('Fan',(o.fanrpm?o.fanrpm+'RPM':'')+(o.antifreeze?'❄':'')+(o.control?'✷':''));"      //
+                                "e('fan',o.fan);"  //
+                                "if(o.shutdown){s('shutdown','Restarting: '+o.shutdown);h('shutdown',true);};" //
+                             "}"
+                             "function c()"
+                             "{"    //
+                                "xhttp = new XMLHttpRequest();"
+	                             "xhttp.onreadystatechange = function()"
+                                "{"
+                                   "if (this.readyState == 4 && this.status == 200) {"
+                                      "decode(this.responseText);"
+                                   "} else {"
+		                                "g('top').className='off'"
+                                   "}"
+                                "};"
+                                "xhttp.open('GET', '/status', true);"
+                                "xhttp.send();"
+                             "}"
+                             "function handleLoad()"
+                             "{"
+                                "c();"
+                                "window.setInterval(c, 1000);"
+                             "}"
                              "</script>");
    return web_foot (req);
 }
 
-#ifdef CONFIG_HTTPD_WS_SUPPORT
-
 static esp_err_t
 web_status (httpd_req_t * req)
-{                               // Web socket status report
-   // TODO cookies
-   int fd = httpd_req_to_sockfd (req);
-   void wsend (jo_t * jp)
-   {
-      char *js = jo_finisha (jp);
-      if (js)
-      {
-         httpd_ws_frame_t ws_pkt;
-         memset (&ws_pkt, 0, sizeof (httpd_ws_frame_t));
-         ws_pkt.payload = (uint8_t *) js;
-         ws_pkt.len = strlen (js);
-         ws_pkt.type = HTTPD_WS_TYPE_TEXT;
-         httpd_ws_send_frame_async (req->handle, fd, &ws_pkt);
-         free (js);
-      }
-   }
-   esp_err_t status (void)
-   {
-      jo_t j = daikin_status ();
-      const char *reason;
-      int t = revk_shutting_down (&reason);
-      if (t)
-         jo_string (j, "shutdown", reason);
-      wsend (&j);
-      return ESP_OK;
-   }
-   if (req->method == HTTP_GET)
-      return status ();         // Send status on initial connect
-   // received packet
-   httpd_ws_frame_t ws_pkt;
-   uint8_t *buf = NULL;
-   memset (&ws_pkt, 0, sizeof (httpd_ws_frame_t));
-   ws_pkt.type = HTTPD_WS_TYPE_TEXT;
-   esp_err_t ret = httpd_ws_recv_frame (req, &ws_pkt, 0);
-   if (ret)
-      return ret;
-   if (!ws_pkt.len)
-      return status ();         // Empty string
-   buf = calloc (1, ws_pkt.len + 1);
-   if (!buf)
-      return ESP_ERR_NO_MEM;
-   ws_pkt.payload = buf;
-   ret = httpd_ws_recv_frame (req, &ws_pkt, ws_pkt.len);
-   if (!ret)
-   {
-      jo_t j = jo_parse_mem (buf, ws_pkt.len);
-      if (j)
-      {
-         daikin_control (j);
-         jo_free (&j);
-      }
-   }
-   free (buf);
-   return status ();
-}
+{
+   jo_t j = daikin_status ();
+   const char *reason;
+   int t = revk_shutting_down (&reason);
+   if (t)
+      jo_string (j, "shutdown", reason);
 
-#endif
+   char *js = jo_finisha (&j);
+
+   httpd_resp_set_type (req, "application/json");
+
+   if (js) {
+      httpd_resp_sendstr (req, js);
+      free (js);
+   } else {
+      httpd_resp_send (req, NULL, 0);
+   }
+
+   return ESP_OK;
+}
 
 static esp_err_t
 web_get_basic_info (httpd_req_t * req)
@@ -1728,25 +1701,6 @@ static void register_get_uri(const char *uri, esp_err_t (*handler)(httpd_req_t *
    register_uri(&uri_struct);
 }
 
-#ifdef CONFIG_HTTPD_WS_SUPPORT
-
-static void register_ws_uri(const char *uri, esp_err_t (*handler)(httpd_req_t *r))
-{
-   httpd_uri_t uri = {
-      .uri = uri,
-      .method = HTTP_GET,
-      .handler = handler,
-      .is_websocket = true,
-   };
-
-   register_uri(&uri_struct);
-}
-
-#else
-// 'handler' also doesn't exist, so we are using #define here
-#define register_ws_uri(uri, handler)
-#endif
-
 // --------------------------------------------------------------------------------
 // Main
 void
@@ -1787,7 +1741,8 @@ app_main ()
    httpd_config_t config = HTTPD_DEFAULT_CONFIG ();
 
    // When updating the code below, make sure this is enough
-   config.max_uri_handlers = 12;
+   // Note that we're also adding revk's web config handlers
+   config.max_uri_handlers = 13;
 
    if (!httpd_start (&webserver, &config))
    {
@@ -1799,7 +1754,7 @@ app_main ()
          {
             register_get_uri("/wifi", revk_web_config);
          }
-         register_ws_uri("/status", web_status);
+         register_get_uri("/status", web_status);
          register_get_uri("/common/basic_info", web_get_basic_info);
          register_get_uri("/aircon/get_control_info", web_get_control_info);
          register_get_uri("/aircon/set_control_info", web_set_control_info);
