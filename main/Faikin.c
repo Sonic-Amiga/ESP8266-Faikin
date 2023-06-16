@@ -1087,16 +1087,6 @@ web_root (httpd_req_t * req)
       httpd_resp_sendstr_chunk (req, temp);
       addf (tag);
    }
-   void addtime (const char *tag, const char *field)
-   {
-      httpd_resp_sendstr_chunk (req, "<td align=right>");
-      httpd_resp_sendstr_chunk (req, tag);
-      httpd_resp_sendstr_chunk (req, "</td><td><input class=time type=time title=\"Set 00:00 to disable\" id=");
-      httpd_resp_sendstr_chunk (req, field);
-      httpd_resp_sendstr_chunk (req, " onchange=\"w('");
-      httpd_resp_sendstr_chunk (req, field);
-      httpd_resp_sendstr_chunk (req, "',this.value);\"></td>");
-   }
    httpd_resp_sendstr_chunk (req, "<tr>");
    addb ("Power", "power");
    httpd_resp_sendstr_chunk (req, "</tr>");
@@ -1137,6 +1127,16 @@ web_root (httpd_req_t * req)
 #ifdef ELA
    if (autor || *autob || !daikin.remote)
    {
+      void addtime (const char *tag, const char *field)
+      {
+         httpd_resp_sendstr_chunk (req, "<td align=right>");
+         httpd_resp_sendstr_chunk (req, tag);
+         httpd_resp_sendstr_chunk (req, "</td><td><input class=time type=time title=\"Set 00:00 to disable\" id=");
+         httpd_resp_sendstr_chunk (req, field);
+         httpd_resp_sendstr_chunk (req, " onchange=\"w('");
+         httpd_resp_sendstr_chunk (req, field);
+         httpd_resp_sendstr_chunk (req, "',this.value);\"></td>");
+      }
       httpd_resp_sendstr_chunk (req, "<div id=remote><hr><p>Automated local controls</p><table>");
       add ("Track", "autor", "Off", "0", "±½℃", "0.5", "±1℃", "1", "±2℃", "2", NULL);
       addtemp ("Target", "autot");
@@ -1200,7 +1200,11 @@ web_root (httpd_req_t * req)
                              "function s(n,v){var d=g(n);if(d)d.textContent=v;}"        //
                              "function n(n,v){var d=g(n);if(d)d.value=v;}"      //
                              "function e(n,v){var d=g(n+v);if(d)d.checked=true;}"       //
-                             "function w(n,v){}"    // TODO: Set
+                             "function w(n,v){"
+                                "xhttp = new XMLHttpRequest();"
+                                "xhttp.open('GET', '/control?' + n + '=' + v, true);"
+                                "xhttp.send();"
+                             "}"
                              "function decode(rt)"
                              "{"
                                 "g('top').className='on';"
@@ -1235,10 +1239,11 @@ web_root (httpd_req_t * req)
                                 "xhttp = new XMLHttpRequest();"
 	                             "xhttp.onreadystatechange = function()"
                                 "{"
-                                   "if (this.readyState == 4 && this.status == 200) {"
-                                      "decode(this.responseText);"
-                                   "} else {"
-		                                "g('top').className='off'"
+                                   "if (this.readyState == 4) {"
+                                      "if (this.status == 200)"
+                                         "decode(this.responseText);"
+                                      "else"
+		                                   "g('top').className='off'"
                                    "}"
                                 "};"
                                 "xhttp.open('GET', '/status', true);"
@@ -1273,6 +1278,46 @@ web_status (httpd_req_t * req)
       httpd_resp_send (req, NULL, 0);
    }
 
+   return ESP_OK;
+}
+
+static void simple_response(httpd_req_t * req, const char * err)
+{
+   httpd_resp_set_type (req, "text/plain");
+
+   if (err) {
+      char resp[1000];
+
+      // This "ret" value is reported by my BRP on malformed request
+      // Error text after 'adv' is my addition; assuming 'advisory'
+      snprintf (resp, sizeof(resp), "ret=PARAM NG,adv=%s", err);
+      httpd_resp_sendstr (req, resp);
+   } else {
+      httpd_resp_sendstr (req, "ret=OK,adv=");
+   }
+}
+
+static esp_err_t
+web_control (httpd_req_t * req)
+{
+   const char *err = "Parameters are missing";
+
+   if (httpd_req_get_url_query_len (req))
+   {
+      char query[1000],
+        value[10];
+      if (!httpd_req_get_url_query_str (req, query, sizeof (query)))
+      {
+         err = "Invalid parameters";
+#define	b(name)        if(!httpd_query_key_value (query, #name, value, sizeof (value)) && *value) err=daikin_set_v(name,!strcmp(value,"true"));
+#define	t(name)		   if(!httpd_query_key_value (query, #name, value, sizeof (value)) && *value) err=daikin_set_t(name,strtof(value, NULL));
+#define	i(name)		   if(!httpd_query_key_value (query, #name, value, sizeof (value)) && *value) err=daikin_set_i(name,atoi(value));
+#define	e(name,values)	if(!httpd_query_key_value (query, #name, value, sizeof (value)) && *value) err=daikin_set_e(name,value);
+#include "accontrols.m"
+      }
+   }
+
+   simple_response(req, err);
    return ESP_OK;
 }
 
@@ -1444,9 +1489,7 @@ web_get_week_power (httpd_req_t * req)
 static esp_err_t
 web_set_special_mode (httpd_req_t * req)
 {
-   httpd_resp_set_type (req, "text/plain");
-   char resp[1000],
-   *o = resp;
+   const char *err = "Required parameters missing";
 
    if (httpd_req_get_url_query_len (req))
    {
@@ -1458,33 +1501,24 @@ web_set_special_mode (httpd_req_t * req)
          if (!httpd_query_key_value (query, "spmode_kind", mode, sizeof (mode)) &&
              !httpd_query_key_value (query, "set_spmode", value, sizeof (value)))
          {
-            // TODO
-            if (!strcmp(mode, "13")) {
-               // STREAMER
-            } else if (!strcmp(mode, "12")) {
-               // ECO
+            if (!strcmp(mode, "12")) {
+               err = daikin_set_v (econo, *value == '1');
             } else if (!strcmp(mode, "2")) {
-               // POWERFUL
-            } else if (!strcmp(mode, "2/13")) {
-               // POWERFUL_STREAMER
-            } else if (!strcmp(mode, "12/13")) {
-               // ECO_STREAMER
+               err = daikin_set_v (powerful, *value == '1');
+            } else {
+               err = "Unsupported special mode";
             }
 
-            // "value" is "1" or "0"
-
-            o += sprintf (o, "ret=OK");
-
-            httpd_resp_sendstr (req, resp);
-            return ESP_OK;
+            // The following other modes are known from OpenHAB sources:
+            // STREAMER "13"
+            // POWERFUL_STREAMER "2/13"
+            // ECO_STREAMER "12/13"
+            // Don't know what to do with them
          }
       }
    }
 
-   // This is reported by my BRP on malformed request
-   o += sprintf (o, "ret=PARAM NG,adv=");
-   httpd_resp_sendstr (req, resp);
-
+   simple_response(req, err);
    return ESP_OK;
 }
 
@@ -1742,7 +1776,7 @@ app_main ()
 
    // When updating the code below, make sure this is enough
    // Note that we're also adding revk's web config handlers
-   config.max_uri_handlers = 13;
+   config.max_uri_handlers = 14;
 
    if (!httpd_start (&webserver, &config))
    {
@@ -1755,6 +1789,7 @@ app_main ()
             register_get_uri("/wifi", revk_web_config);
          }
          register_get_uri("/status", web_status);
+         register_get_uri("/control", web_control);
          register_get_uri("/common/basic_info", web_get_basic_info);
          register_get_uri("/aircon/get_control_info", web_get_control_info);
          register_get_uri("/aircon/set_control_info", web_set_control_info);
@@ -1775,8 +1810,10 @@ app_main ()
 #endif
 
    if (!tx && !rx)
-   {                            // Dummy
-      daikin.status_known |= CONTROL_power | CONTROL_fan | CONTROL_temp | CONTROL_mode;
+   {
+      // Mock for interface development and testing
+      daikin.status_known |= CONTROL_power | CONTROL_fan | CONTROL_temp | CONTROL_mode |
+                             CONTROL_econo | CONTROL_powerful;
       daikin.power = 1;
       daikin.mode = 1;
       daikin.temp = 20.0;
@@ -1805,8 +1842,11 @@ app_main ()
             daikin.online = daikin.talking;
             daikin.status_changed = 1;
          }
-      } else
-         daikin.control_changed = 0;    // Dummy
+      } else {
+         // Mock configuration for interface testing
+         s21 = 1;
+         daikin.control_changed = 0;
+      }
       if (ha)
          daikin.ha_send = 1;
       do
