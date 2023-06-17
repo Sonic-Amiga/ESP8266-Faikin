@@ -1258,6 +1258,51 @@ web_root (httpd_req_t * req)
    return web_foot (req);
 }
 
+static const char * get_query(httpd_req_t * req, char *buf, size_t buf_len)
+{
+   if (httpd_req_get_url_query_len (req) && 
+       !httpd_req_get_url_query_str (req, buf, buf_len))
+      return NULL;
+   else
+      return "Required arguments missing";
+}
+
+static void simple_response(httpd_req_t * req, const char * err)
+{
+   httpd_resp_set_type (req, "text/plain");
+
+   if (err) {
+      char resp[1000];
+
+      // This "ret" value is reported by my BRP on malformed request
+      // Error text after 'adv' is my addition; assuming 'advisory'
+      snprintf (resp, sizeof(resp), "ret=PARAM NG,adv=%s", err);
+      httpd_resp_sendstr (req, resp);
+   } else {
+      httpd_resp_sendstr (req, "ret=OK,adv=");
+   }
+}
+
+// Macros with error collection for HTTP
+#define	daikin_set_v_e(err,name,value) {      \
+   const char * e = daikin_set_v(name, value); \
+   if (e) err = e;                             \
+}
+#define	daikin_set_i_e(err,name,value) {      \
+	const char * e = daikin_set_i(name, value); \
+   if (e) err = e;                             \
+}
+#define	daikin_set_e_e(err,name,value) {      \
+   const char *e = daikin_set_e(name, value);  \
+   if (e) err = e;                             \
+}
+#define	daikin_set_t_e(err,name,value) {      \
+   const char * e = daikin_set_t(name, value); \
+   if (e) err = e;                             \
+}
+
+// Our own JSON-based control interface starts here
+
 static esp_err_t
 web_status (httpd_req_t * req)
 {
@@ -1281,40 +1326,20 @@ web_status (httpd_req_t * req)
    return ESP_OK;
 }
 
-static void simple_response(httpd_req_t * req, const char * err)
-{
-   httpd_resp_set_type (req, "text/plain");
-
-   if (err) {
-      char resp[1000];
-
-      // This "ret" value is reported by my BRP on malformed request
-      // Error text after 'adv' is my addition; assuming 'advisory'
-      snprintf (resp, sizeof(resp), "ret=PARAM NG,adv=%s", err);
-      httpd_resp_sendstr (req, resp);
-   } else {
-      httpd_resp_sendstr (req, "ret=OK,adv=");
-   }
-}
-
 static esp_err_t
 web_control (httpd_req_t * req)
 {
-   const char *err = "Parameters are missing";
+   char query[1000];
+   const char *err = get_query(req, query, sizeof(query));
 
-   if (httpd_req_get_url_query_len (req))
+   if (!err)
    {
-      char query[1000],
-        value[10];
-      if (!httpd_req_get_url_query_str (req, query, sizeof (query)))
-      {
-         err = "Invalid parameters";
-#define	b(name)        if(!httpd_query_key_value (query, #name, value, sizeof (value)) && *value) err=daikin_set_v(name,!strcmp(value,"true"));
-#define	t(name)		   if(!httpd_query_key_value (query, #name, value, sizeof (value)) && *value) err=daikin_set_t(name,strtof(value, NULL));
-#define	i(name)		   if(!httpd_query_key_value (query, #name, value, sizeof (value)) && *value) err=daikin_set_i(name,atoi(value));
-#define	e(name,values)	if(!httpd_query_key_value (query, #name, value, sizeof (value)) && *value) err=daikin_set_e(name,value);
+      char value[10];
+#define	b(name)        if(!httpd_query_key_value (query, #name, value, sizeof (value)) && *value) daikin_set_v_e(err,name,!strcmp(value,"true"));
+#define	t(name)		   if(!httpd_query_key_value (query, #name, value, sizeof (value)) && *value) daikin_set_t_e(err,name,strtof(value, NULL));
+#define	i(name)		   if(!httpd_query_key_value (query, #name, value, sizeof (value)) && *value) daikin_set_i_e(err,name,atoi(value));
+#define	e(name,values)	if(!httpd_query_key_value (query, #name, value, sizeof (value)) && *value) daikin_set_e_e(err,name,value);
 #include "accontrols.m"
-      }
    }
 
    simple_response(req, err);
@@ -1343,6 +1368,17 @@ web_get_basic_info (httpd_req_t * req)
    return ESP_OK;
 }
 
+// The following handlers provide web-based control protocol, compatible
+// with original Daikin BRP series online controllers.
+
+static char brp_mode()
+{
+    // Mapped from FHCA456D. Verified against original BRP069A41 controller,
+    // which uses 7 for 'Auto'. This may vary across different controller
+    // versions, see a comment in web_set_control_info()
+    return "64370002"[daikin.mode];
+}
+
 static esp_err_t
 web_get_control_info (httpd_req_t * req)
 {
@@ -1352,7 +1388,7 @@ web_get_control_info (httpd_req_t * req)
    o += sprintf (o, "ret=OK");
    o += sprintf (o, ",pow=%d", daikin.power);
    if (daikin.mode <= 7)
-      o += sprintf (o, ",mode=%c", "64310002"[daikin.mode]);    // Mapped from FHCA456D
+      o += sprintf (o, ",mode=%c", brp_mode());
    o += sprintf (o, ",adv=%s", daikin.powerful ? "2" : "");
    o += sprintf (o, ",stemp=%.1f", daikin.temp);
    o += sprintf (o, ",shum=0");
@@ -1364,7 +1400,7 @@ web_get_control_info (httpd_req_t * req)
          o += sprintf (o, ",dh%d=0", i);
    o += sprintf (o, "dhh=0");
    if (daikin.mode <= 7)
-      o += sprintf (o, ",b_mode=%c", "64310002"[daikin.mode]);  // Mapped from FHCA456D
+      o += sprintf (o, ",b_mode=%c", brp_mode());
    o += sprintf (o, ",b_stemp=%.1f", daikin.temp);
    o += sprintf (o, ",b_shum=0");
    o += sprintf (o, ",alert=255");
@@ -1388,24 +1424,51 @@ web_get_control_info (httpd_req_t * req)
 static esp_err_t
 web_set_control_info (httpd_req_t * req)
 {
-   if (httpd_req_get_url_query_len (req))
-   {
-      char query[1000],
-        value[10];
-      if (!httpd_req_get_url_query_str (req, query, sizeof (query)))
-      {                         // Assumes sane values sent mostly, and no error checking
-         if (!httpd_query_key_value (query, "pow", value, sizeof (value)) && *value)
-            daikin_set_v (power, *value == '1');
-         if (!httpd_query_key_value (query, "mode", value, sizeof (value)) && *value && *value >= '1' && *value <= '7')
-            daikin_set_v (mode, "03721003"[*value - '0']);
-         if (!httpd_query_key_value (query, "stemp", value, sizeof (value)) && *value)
-            daikin_set_t (temp, strtof (value, NULL));
-         if (!httpd_query_key_value (query, "f_rate", value, sizeof (value)) && *value)
-            daikin_set_v (fan, *value == 'A' ? 0 : *value == 'B' ? 6 : *value - '0');
+   char query[1000];
+   const char * err = get_query(req, query, sizeof(query));
+
+   if (!err)
+   {      
+      char value[10];
+
+      if (!httpd_query_key_value (query, "pow", value, sizeof (value)) && *value)
+         daikin_set_v_e(err, power, *value == '1');
+      if (!httpd_query_key_value (query, "mode", value, sizeof (value)) && *value) {
+         // Orifinal Faikin-ESP32 code uses 1 for 'Auto` mode
+         // OpenHAB uses value of 0
+         // My original Daikin BRP069A41 controller reports 7. I tried writing '1' there,
+         // it starts replying back with this value, but there's no way to see what
+         // the AC does. Probably nothing.
+         // Here we promote all three values as 'Auto'. Just in case.
+         static int8_t modes[] = {3, 3, 7, 2, 1, -1, 0, 3}; // AADCH-FA
+         int8_t setval = (*value >= '0' && *value <= '7') ? modes[*value - '0'] : -1;
+
+         if (setval == -1)
+            err = "Invalid mode value";
+         else
+            daikin_set_v_e (err, mode, setval);
+      }
+      if (!httpd_query_key_value (query, "stemp", value, sizeof (value)) && *value)
+         daikin_set_t_e (err, temp, strtof (value, NULL));
+      if (!httpd_query_key_value (query, "f_rate", value, sizeof (value)) && *value) {
+         int8_t setval;
+
+         if (*value == 'A')
+            setval = 0;
+         else if (*value == 'B')
+            setval = 6;
+         else if (*value >= '3' && *value <= '7')
+            setval = *value - '2';
+         else
+            setval = -1;
+         if (setval == -1)
+            err = "Invalid f_rate value";
+         else
+            daikin_set_v_e (err, fan, setval);
       }
    }
-   httpd_resp_set_type (req, "text/plain");
-   httpd_resp_sendstr (req, "ret=OK,adv=");
+
+   simple_response(req, err);
    return ESP_OK;
 }
 
@@ -1489,32 +1552,29 @@ web_get_week_power (httpd_req_t * req)
 static esp_err_t
 web_set_special_mode (httpd_req_t * req)
 {
-   const char *err = "Required parameters missing";
+   char query[200];
+   const char *err = get_query(req, query, sizeof(query));
 
-   if (httpd_req_get_url_query_len (req))
+   if (!err)
    {
-      char query[200];
-      if (!httpd_req_get_url_query_str (req, query, sizeof (query)))
+      char mode[6], value[2];
+
+      if (!httpd_query_key_value (query, "spmode_kind", mode, sizeof (mode)) &&
+          !httpd_query_key_value (query, "set_spmode", value, sizeof (value)))
       {
-         char mode[6], value[2];
-
-         if (!httpd_query_key_value (query, "spmode_kind", mode, sizeof (mode)) &&
-             !httpd_query_key_value (query, "set_spmode", value, sizeof (value)))
-         {
-            if (!strcmp(mode, "12")) {
-               err = daikin_set_v (econo, *value == '1');
-            } else if (!strcmp(mode, "2")) {
-               err = daikin_set_v (powerful, *value == '1');
-            } else {
-               err = "Unsupported special mode";
-            }
-
-            // The following other modes are known from OpenHAB sources:
-            // STREAMER "13"
-            // POWERFUL_STREAMER "2/13"
-            // ECO_STREAMER "12/13"
-            // Don't know what to do with them
+         if (!strcmp(mode, "12")) {
+            err = daikin_set_v (econo, *value == '1');
+         } else if (!strcmp(mode, "2")) {
+            err = daikin_set_v (powerful, *value == '1');
+         } else {
+            err = "Unsupported spmode_kind value";
          }
+
+         // The following other modes are known from OpenHAB sources:
+         // STREAMER "13"
+         // POWERFUL_STREAMER "2/13"
+         // ECO_STREAMER "12/13"
+         // Don't know what to do with them and my AC doesn't support them
       }
    }
 
