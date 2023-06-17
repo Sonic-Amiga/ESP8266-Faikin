@@ -36,7 +36,7 @@ static const char TAG[] = "Faikin";
 	b(dark,false)		\
 	b(ble,false)		\
 	b(ha,true)		\
-	u8(uart,1)		\
+	u8(uart,CONFIG_FAIKIN_AC_UART_NUM)		\
 	u8l(thermref,50)	\
 	u8l(autop10,5)		\
 	u8l(coolover,6)		\
@@ -58,9 +58,9 @@ static const char TAG[] = "Faikin";
 	u32(tsample,900)	\
 	u32(tcontrol,600)	\
 	u8(fanstep,0)		\
-	u32(reporting,60)	\
-	io(tx,CONFIG_FAIKIN_TX)	\
-	io(rx,CONFIG_FAIKIN_RX)	\
+	u32(reporting,60)
+
+#define UART_NONE 0xFF
 
 #define u32(n,d) uint32_t n;
 #define s8(n,d) int8_t n;
@@ -1747,12 +1747,27 @@ ha_status (void)
    revk_mqtt_send_clients (NULL, 1, revk_id, &j, 1);
 }
 
+int faikin_log_vprintf(const char *restrict format, va_list ap) {
+   // Currently nothing to do here. However, in future we could
+   // provide e.g. a simple telnet server to read logs from
+   return 0;
+}
+
 void uart_setup (void)
 {
    esp_err_t err = 0;
    if (!protocol_set)
       s21 = 1 - s21;         // Flip
    ESP_LOGI (TAG, "Starting UART%s", s21 ? " S21" : "");
+// Shut off console log if it is using our UART
+#if defined(ESP_CONSOLE_UART_DEFAULT) || defined(ESP_CONSOLE_UART_CUSTOM_NUM_0)
+   if (uart == UART_NUM_0)
+      esp_log_set_vprintf(faikin_log_vprintf);
+#endif
+#if defined(ESP_CONSOLE_UART_CUSTOM_NUM_1)
+   if (uart == UART_NUM_1)
+      esp_log_set_vprintf(faikin_log_vprintf);
+#endif
    uart_config_t uart_config = {
       .baud_rate = s21 ? 2400 : 9600,
       .data_bits = UART_DATA_8_BITS,
@@ -1769,7 +1784,6 @@ void uart_setup (void)
       jo_t j = jo_object_alloc ();
       jo_string (j, "error", "Failed to uart");
       jo_int (j, "uart", uart);
-      jo_int (j, "gpio", port_mask (rx));
       jo_string (j, "description", esp_err_to_name (err));
       revk_error ("uart", &j);
       return;
@@ -1869,7 +1883,7 @@ app_main ()
       esp_wifi_set_ps (WIFI_PS_NONE);
 #endif
 
-   if (!tx && !rx)
+   if (uart == UART_NONE)
    {
       // Mock for interface development and testing
       daikin.status_known |= CONTROL_power | CONTROL_fan | CONTROL_temp | CONTROL_mode |
@@ -1882,7 +1896,7 @@ app_main ()
    while (1)
    {                            // Main loop
       daikin.talking = 1;
-      if (tx || rx)
+      if (uart != UART_NONE)
       {
          // Poke UART
          uart_setup ();
@@ -1941,7 +1955,7 @@ app_main ()
             daikin.mintarget = (autot - autor) / 10.0;
             daikin.maxtarget = (autot + autor) / 10.0;
          }
-         if (tx || rx)
+         if (uart != UART_NONE)
          {
             if (s21)
             {                   // Older S21
