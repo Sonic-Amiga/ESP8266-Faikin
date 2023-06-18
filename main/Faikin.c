@@ -1747,10 +1747,10 @@ ha_status (void)
    revk_mqtt_send_clients (NULL, 1, revk_id, &j, 1);
 }
 
-int faikin_log_vprintf(const char *restrict format, va_list ap) {
+int faikin_log_putc(int c) {
    // Currently nothing to do here. However, in future we could
    // provide e.g. a simple telnet server to read logs from
-   return 0;
+   return c;
 }
 
 void uart_setup (void)
@@ -1760,13 +1760,13 @@ void uart_setup (void)
       s21 = 1 - s21;         // Flip
    ESP_LOGI (TAG, "Starting UART%s", s21 ? " S21" : "");
 // Shut off console log if it is using our UART
-#if defined(ESP_CONSOLE_UART_DEFAULT) || defined(ESP_CONSOLE_UART_CUSTOM_NUM_0)
+#if defined(CONFIG_ESP_CONSOLE_UART_DEFAULT) || defined(CONFIG_ESP_CONSOLE_UART_CUSTOM_NUM_0)
    if (uart == UART_NUM_0)
-      esp_log_set_vprintf(faikin_log_vprintf);
+      esp_log_set_putchar(faikin_log_putc);
 #endif
-#if defined(ESP_CONSOLE_UART_CUSTOM_NUM_1)
+#if defined(CONFIG_ESP_CONSOLE_UART_CUSTOM_NUM_1)
    if (uart == UART_NUM_1)
-      esp_log_set_vprintf(faikin_log_vprintf);
+      esp_log_set_putchar(faikin_log_putc);
 #endif
    uart_config_t uart_config = {
       .baud_rate = s21 ? 2400 : 9600,
