@@ -11,12 +11,7 @@ static const char TAG[] = "Faikin";
 #include "esp_http_server.h"
 #include <math.h>
 #include "mdns.h"
-
-#define	STX	2
-#define	ETX	3
-#define	ENQ	5
-#define	ACK	6
-#define	NAK	21
+#include "daikin_s21.h"
 
 // Macros for setting values
 // They set new values for parameters inside the big "daikin" state struct
@@ -293,6 +288,7 @@ jo_comms_alloc (void)
 
 jo_t s21debug = NULL;
 
+// Decode S21 response payload
 void
 daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
 {
@@ -305,7 +301,7 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
    if (cmd == 'G' && len == 4)
       switch (cmd2)
       {
-      case '1':
+      case '1': // 'G1' - basic status
          set_val (online, 1);
          set_val (power, (payload[0] == '1') ? 1 : 0);
          set_val (mode, "30721003"[payload[1] & 0x7] - '0');    // FHCA456D mapped from AXDCHXF
@@ -321,14 +317,14 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
          else
             set_val (fan, "00012345"[payload[3] & 0x7] - '0');  // XXX12345 mapped to A12345Q
          break;
-      case '5':
+      case '5': // 'G5' - swing status
          set_val (swingv, (payload[0] & 1) ? 1 : 0);
          set_val (swingh, (payload[0] & 2) ? 1 : 0);
          break;
-      case '6':
+      case '6': // 'G6' - "powerful" mode
          set_val (powerful, payload[0] == '2' ? 1 : 0);
          break;
-      case '7':
+      case '7': // 'G7' - "eco" mode
          set_val (econo, payload[1] == '2' ? 1 : 0);
          break;
          // Check 'G'
@@ -340,14 +336,14 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
          t = -t;
       if (t < 100)              // Sanity check
          switch (cmd2)
-         {                      // Temperatures
-         case 'H':             // Guess
+         {                      // Temperatures (guess)
+         case 'H':             // 'SH' - home temp
             set_temp (home, t);
             break;
-         case 'a':             // Guess
+         case 'a':             // 'Sa' - outside temp
             set_temp (outside, t);
             break;
-         case 'I':             // Guess
+         case 'I':             // 'SI' - liquid ???
             set_temp (liquid, t);
             break;
          case 'N':             // ?
@@ -476,19 +472,13 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
    }
    if (!daikin.talking)
       return S21_WAIT;          // Failed
-   uint8_t buf[256],
-     temp;
+   uint8_t buf[256], temp;
    buf[0] = STX;
    buf[1] = cmd;
    buf[2] = cmd2;
    if (txlen)
       memcpy (buf + 3, payload, txlen);
-   uint8_t c = 0;
-   for (int i = 1; i < 3 + txlen; i++)
-      c += buf[i];
-   if (c == ETX)
-      c = ENQ;                  // Seems 03 sent as 05
-   buf[3 + txlen] = c;
+   buf[3 + txlen] = s21_checksum(buf, 5 + txlen);
    buf[4 + txlen] = ETX;
    if (dump)
    {
@@ -501,6 +491,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
    int rxlen = uart_read_bytes (uart, &temp, 1, 100 / portTICK_PERIOD_MS);
    if (rxlen != 1 || temp != ACK)
    {
+      // Got something else
       jo_t j = jo_comms_alloc ();
       jo_stringf (j, "cmd", "%c%c", cmd, cmd2);
       if (txlen)
@@ -510,6 +501,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
       }
       if (rxlen == 1 && temp == NAK)
       {
+         // Got an explicit NAK
          if (debug)
          {
             jo_bool (j, "nak", 1);
@@ -518,6 +510,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
             jo_free (&j);
          return S21_NAK;
       }
+      // Unexpected reply, protocol broken
       daikin.talking = 0;
       jo_bool (j, "noack", 1);
       if (rxlen)
@@ -525,8 +518,12 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
       revk_error ("comms", &j);
       return S21_NOACK;
    }
+
+   // If we're here, we've got ACK
    if (cmd == 'D')
       return S21_OK;            // No response expected
+
+   // Now get ready to receive a response, we whould get STX first
    while (1)
    {
       rxlen = uart_read_bytes (uart, buf, 1, 100 / portTICK_PERIOD_MS);
@@ -541,6 +538,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
       if (*buf == STX)
          break;
    }
+   // Receive the rest of response till ETX
    while (rxlen < sizeof (buf))
    {
       if (uart_read_bytes (uart, buf + rxlen, 1, 10 / portTICK_PERIOD_MS) != 1)
@@ -555,7 +553,8 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
       if (buf[rxlen - 1] == ETX)
          break;
    }
-   // Send ACK regardless, data is repeated, so will be sent again if we ignore due to checksum, for example.
+   // Send ACK regardless of packet quality. If we don't ack due to checksum error,
+   // for example, the response will be sent again
    temp = ACK;
    uart_write_bytes (uart, (char *)&temp, 1);
    if (dump)
@@ -565,10 +564,8 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
       revk_info ("rx", &j);
    }
    // Check checksum
-   c = 0;
-   for (int i = 1; i < rxlen - 2; i++)
-      c += buf[i];
-   if (c != buf[rxlen - 2] && (c != ACK || buf[rxlen - 2] != ENQ))
+   uint8_t c = s21_checksum(buf, rxlen);
+   if (c != buf[rxlen - 2])
    {                            // Sees checksum of 03 actually sends as 05
       jo_t j = jo_comms_alloc ();
       jo_stringf (j, "badsum", "%02X", c);
@@ -587,12 +584,14 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
    }
    loopback = 0;
    if (buf[0] == STX)
-      protocol_set = 1;         // Good format
+      protocol_set = 1; // Got an STX, S21 protocol chosen
+   // An expected S21 reply contains the first character of the command
+   // incremented by 1, the second character is left intact
    if (rxlen < 5 || buf[0] != STX || buf[rxlen - 1] != ETX || buf[1] != cmd + 1 || buf[2] != cmd2)
    {                            // Bad message
       daikin.talking = 0;       // Fail, restart comms
       jo_t j = jo_comms_alloc ();
-      if (buf[0] != 2)
+      if (buf[0] != STX)
          jo_bool (j, "badhead", 1);
       if (buf[1] != cmd + 1 || buf[2] != cmd2)
          jo_bool (j, "mismatch", 1);
@@ -1963,7 +1962,17 @@ app_main ()
                if (debug)
                   s21debug = jo_object_alloc ();
                // These are what their wifi polls
-#define poll(a,b,c,d) static uint8_t a##b##d=10; if(a##b##d){int r=daikin_s21_command(*#a,*#b,c,#d); if(r==S21_OK)a##b##d=100; else if(r==S21_NAK)a##b##d--;} if(!daikin.talking)a##b##d=10;
+#define poll(a,b,c,d)                         \
+   static uint8_t a##b##d=10;                 \
+   if(a##b##d){                               \
+      int r=daikin_s21_command(*#a,*#b,c,#d); \
+      if (r==S21_OK)                          \
+         a##b##d=100;                         \
+      else if(r==S21_NAK)                     \
+         a##b##d--;                           \
+   }                                          \
+   if(!daikin.talking)                        \
+      a##b##d=10;
                poll (F, 1, 0,);
                if (debug)
                {

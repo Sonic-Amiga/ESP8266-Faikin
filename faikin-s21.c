@@ -12,17 +12,13 @@
 #include <unistd.h>
 #include <stdint.h>
 
+#include "main/daikin_s21.h"
+
 #ifdef WIN32
 #include <windows.h>
 #else
 #include <termios.h>
 #endif
-
-#define	STX	2
-#define	ETX	3
-#define	ENQ	5
-#define	ACK	6
-#define	NAK	21
 
 int   debug = 0,
 	  ump = 0;
@@ -32,31 +28,47 @@ int   mode = 3;
 int   comp = 1;
 float temp = 22.5;
 int   fan = 3;
-int   t1 = 1000,
-	  t2 = 1000,
-	  t3 = 1000,
-	  t4 = 1000,
-	  t5 = 1000,
-	  t6 = 1000,
-	  t7 = 1000,
-	  t8 = 1000,
-	  t9 = 1000,
-	  t10 = 1000,
-	  t11 = 1000,
-	  t12 = 1000,
-	  t13 = 1000;
+int   swing = 0;
+int   powerful = 0;
+int   eco = 0;
+int   home = 245; // Multiplied by 10
+int   outside = 205;
+int   liquid = 185;
 
-unsigned char checksum(unsigned char * buf, int len)
+static void s21_reply(int p, unsigned char *response, const unsigned char *cmd, int payload_len)
 {
-   uint8_t c = 0;
+   int pkt_len = 5 + payload_len;
+   int l;
 
-   for (int i = 1; i < len - 2; i++)
-      c += buf[i];
-  
-   if (c == ACK)
-      c = ENQ;
-  
-   return c;
+   response[0] = STX;
+   response[1] = cmd[1] + 1;
+   response[2] = cmd[2];
+   response[3 + payload_len] = s21_checksum(response, pkt_len);
+   response[4 + payload_len] = ETX;
+
+   l = write(p, response, pkt_len);
+   if (l < 0) {
+	  perror("Serial write failed");
+	  exit(255);
+   }
+   if (l != pkt_len) {
+	  fprintf(stderr, "Serial write failed; %d bytes instead of %d\n", l, pkt_len);
+	  exit(255);
+   }
+}
+
+static void send_temp(int p, unsigned char *response, const unsigned char *cmd, int value)
+{
+	char buf[5];
+	
+	snprintf(buf, sizeof(buf), "%+d", value);
+	
+	response[3] = buf[3];
+	response[4] = buf[2];
+	response[5] = buf[1];
+	response[6] = buf[0];
+	
+	s21_reply(p, response, cmd, 4);
 }
 
 int
@@ -72,19 +84,6 @@ main(int argc, const char *argv[])
 	  {"fan", 0, POPT_ARG_INT, &fan, 0, "Fan", "1-5"},
 	  {"temp", 0, POPT_ARG_FLOAT, &temp, 0, "Temp", "C"},
 	  {"comp", 0, POPT_ARG_INT, &comp, 0, "Comp", "1=H,2=C"},
-	  {"t1", 0, POPT_ARG_INT, &t1, 0, "T1", "N"},
-	  {"t2", 0, POPT_ARG_INT, &t2, 0, "T2", "N"},
-	  {"t3", 0, POPT_ARG_INT, &t3, 0, "T3", "N"},
-	  {"t4", 0, POPT_ARG_INT, &t4, 0, "T4", "N"},
-	  {"t5", 0, POPT_ARG_INT, &t5, 0, "T5", "N"},
-	  {"t6", 0, POPT_ARG_INT, &t6, 0, "T6", "N"},
-	  {"t7", 0, POPT_ARG_INT, &t7, 0, "T7", "N"},
-	  {"t8", 0, POPT_ARG_INT, &t8, 0, "T8", "N"},
-	  {"t9", 0, POPT_ARG_INT, &t9, 0, "T9", "N"},
-	  {"t10", 0, POPT_ARG_INT, &t10, 0, "T10", "N"},
-	  {"t11", 0, POPT_ARG_INT, &t11, 0, "T11", "N"},
-	  {"t12", 0, POPT_ARG_INT, &t12, 0, "T12", "N"},
-	  {"t13", 0, POPT_ARG_INT, &t13, 0, "T13", "N"},
 	  {"dump", 'V', POPT_ARG_NONE, &dump, 0, "Dump"},
 	  POPT_AUTOHELP {}
    };
@@ -138,12 +137,16 @@ main(int argc, const char *argv[])
    tcflush(p, TCIOFLUSH);
 #endif
 
+   unsigned char buf[256];
+   unsigned char response[256];
+   unsigned char chksum;
+
+   buf[0] = 0;
+
    while (1)
    {
-      unsigned char buf[256];
-	  unsigned char response[256];
-	  unsigned char c;
-      int len = 0;
+	  // Carry over STX from the previous iteration
+	  int len = buf[0] == STX ? 1 : 0;
 
       while (len < sizeof(buf))
       {
@@ -173,9 +176,9 @@ main(int argc, const char *argv[])
          printf("\n");
       }
 
-      c = checksum(buf, len);
-      if (c != buf[len - 2]) {
-		 printf("Bad checksum: 0x%02X vs 0x%02X\n", c, buf[len - 2]);
+      chksum = s21_checksum(buf, len);
+      if (chksum != buf[len - 2]) {
+		 printf("Bad checksum: 0x%02X vs 0x%02X\n", chksum, buf[len - 2]);
 		 continue;
 	  }
 
@@ -185,20 +188,73 @@ main(int argc, const char *argv[])
 
       printf("Got command: %c%c\n", buf[1], buf[2]);
 
-	  if (buf[1] == 'D')
+	  if (buf[1] == 'D') {
 		 // No response expected
+	     buf[0] = 0;
 		 continue;
+	  }
 
-      // For now we just send an empty response; no idea if it's legit or not,
-	  // but Faikin takes it as such, and simply keeps talking to us.
-      response[0] = STX;
-	  response[1] = buf[1] + 1;
-	  response[2] = buf[2];
-	  response[3] = checksum(response, 5);
-	  response[4] = ETX;
+      if (buf[1] == 'F') {
+		 switch (buf[2]) {
+	     case '1':
+		    printf(" -> power %d mode %d temp %f\n", power, mode, temp);
+		    response[3] = power;
+			response[4] = mode;
+			// 18.0 + 0.5 * (signed) (payload[2] - '@')
+			response[5] = (temp - 18.0) / 0.5 + 64;
+			response[6] = 'A'; // Hardcode for now, don't know values
 
-      write(p, response, 5);
-	  
+			s21_reply(p, response, buf, 4);
+			break;
+		 case '5':
+		    printf(" -> swing %d\n", swing);
+		    response[3] = swing;
+			response[4] = 0;
+			response[5] = 0;
+			response[6] = 0;
+
+			s21_reply(p, response, buf, 4);
+			break;
+
+		 case '6':
+		    printf(" -> powerful %d\n", powerful);
+		    response[3] = powerful ? '2' : '0';
+			response[4] = 0;
+			response[5] = 0;
+			response[6] = 0;
+
+			s21_reply(p, response, buf, 4);
+			break;
+		 case '7':
+		    printf(" -> eco %d\n", eco);
+		    response[3] = 0;
+			response[4] = eco ? '2' : '0';
+			response[5] = 0;
+			response[6] = 0;
+
+			s21_reply(p, response, buf, 4);
+			break;
+		 default:
+		    // Just don't respond to something we don't know
+		    buf[0] = 0;
+		    continue;
+		 }
+	  } else if (buf[1] == 'R') {
+		 switch (buf[2]) {
+	     case 'H':
+		    send_temp(p, response, buf, home);
+		    break;
+		 default:
+		    buf[0] = 0;
+		    continue;
+		 }
+	  } else {
+		  buf[0] = 0;
+		  continue;
+	  }
+
+      // We are here if we just have sent a reply. The controller must ACK it.
+
 	  do {
          len = read(p, buf, 1);
 
@@ -210,6 +266,13 @@ main(int argc, const char *argv[])
 	  
 	  if (buf[0] != ACK) {
 		 printf("Protocol error: expected ACK, got 0x%02X\n", buf[0]);
+	  }
+	  // My Daichi module says nothing back if we send something it doesn't expect.
+	  // After a small timeout it simply sends a next packet
+	  if (buf[0] == STX) {
+		 printf("The controller didn't ACK our response, next frame started!\n");
+	  } else {
+		 buf[0] = 0;
 	  }
    }
    return 0;
