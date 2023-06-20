@@ -307,7 +307,7 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
          set_val (mode, "30721003"[payload[1] & 0x7] - '0');    // FHCA456D mapped from AXDCHXF
          set_val (heat, daikin.mode == 1);      // Crude - TODO find if anything actually tells us this
          if (daikin.mode == 1 || daikin.mode == 2 || daikin.mode == 3)
-            set_temp (temp, 18.0 + 0.5 * (signed) (payload[2] - '@'));
+            set_temp (temp, s21_decode_target_temp(payload[2]));
          else if (!isnan (daikin.temp))
             set_temp (temp, daikin.temp);       // Does not have temp in other modes
          if (payload[3] == 'A' && daikin.fan == 6)
@@ -478,15 +478,15 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
    buf[2] = cmd2;
    if (txlen)
       memcpy (buf + 3, payload, txlen);
-   buf[3 + txlen] = s21_checksum(buf, 5 + txlen);
+   buf[3 + txlen] = s21_checksum(buf, S21_MIN_PKT_LEN + txlen);
    buf[4 + txlen] = ETX;
    if (dump)
    {
       jo_t j = jo_comms_alloc ();
-      jo_base16 (j, "dump", buf, txlen + 5);
+      jo_base16 (j, "dump", buf, txlen + S21_MIN_PKT_LEN);
       revk_info ("tx", &j);
    }
-   uart_write_bytes (uart, (char *)buf, 5 + txlen);
+   uart_write_bytes (uart, (char *)buf, S21_MIN_PKT_LEN + txlen);
    // Wait ACK
    int rxlen = uart_read_bytes (uart, &temp, 1, 100 / portTICK_PERIOD_MS);
    if (rxlen != 1 || temp != ACK)
@@ -2020,11 +2020,11 @@ app_main ()
                   temp[0] = daikin.power ? '1' : '0';
                   temp[1] = ("64300002"[daikin.mode]);  // FHCA456D mapped to AXDCHXF
                   if (daikin.mode == 1 || daikin.mode == 2 || daikin.mode == 3)
-                     temp[2] = 0x40 + lroundf ((daikin.temp - 18.0) * 2);
+                     temp[2] = s21_encode_target_temp(daikin.temp);
                   else
-                     temp[2] = '@';     // No temp in other modes
+                     temp[2] = AC_MIN_TEMP_VALUE;     // No temp in other modes
                   temp[3] = ("A34567B"[daikin.fan]);
-                  daikin_s21_command ('D', '1', 4, temp);
+                  daikin_s21_command ('D', '1', S21_PAYLOAD_LEN, temp);
                   xSemaphoreGive (daikin.mutex);
                }
                if (daikin.control_changed & (CONTROL_swingh | CONTROL_swingv))
@@ -2034,7 +2034,7 @@ app_main ()
                   temp[1] = (daikin.swingh || daikin.swingv ? '?' : '0');
                   temp[2] = '0';
                   temp[3] = '0';
-                  daikin_s21_command ('D', '5', 4, temp);
+                  daikin_s21_command ('D', '5', S21_PAYLOAD_LEN, temp);
                   xSemaphoreGive (daikin.mutex);
                }
                if (daikin.control_changed & CONTROL_powerful)
@@ -2044,7 +2044,7 @@ app_main ()
                   temp[1] = '0';
                   temp[2] = '0';
                   temp[3] = '0';
-                  daikin_s21_command ('D', '6', 4, temp);
+                  daikin_s21_command ('D', '6', S21_PAYLOAD_LEN, temp);
                   xSemaphoreGive (daikin.mutex);
                }
                if (daikin.control_changed & CONTROL_econo)
@@ -2054,7 +2054,7 @@ app_main ()
                   temp[1] = '0' + (daikin.econo ? 2 : 0);
                   temp[2] = '0';
                   temp[3] = '0';
-                  daikin_s21_command ('D', '7', 4, temp);
+                  daikin_s21_command ('D', '7', S21_PAYLOAD_LEN, temp);
                   xSemaphoreGive (daikin.mutex);
                }
             } else
