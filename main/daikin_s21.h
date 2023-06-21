@@ -66,7 +66,7 @@ static inline float s21_encode_target_temp(float temp)
 }
 
 // Convert between Daikin and Faikin fan speed enums
-static unsigned char s21_encode_fan(int speed)
+static inline unsigned char s21_encode_fan(int speed)
 {
    switch (speed) {
    case FAIKIN_FAN_AUTO:
@@ -78,7 +78,7 @@ static unsigned char s21_encode_fan(int speed)
    }
 }
 
-static int s21_decode_fan(unsigned char v)
+static inline int s21_decode_fan(unsigned char v)
 {
    switch (v) {
    case AC_FAN_AUTO:

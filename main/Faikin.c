@@ -587,9 +587,10 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
       protocol_set = 1; // Got an STX, S21 protocol chosen
    // An expected S21 reply contains the first character of the command
    // incremented by 1, the second character is left intact
-   if (rxlen < 5 || buf[0] != STX || buf[rxlen - 1] != ETX || buf[1] != cmd + 1 || buf[2] != cmd2)
-   {                            // Bad message
-      daikin.talking = 0;       // Fail, restart comms
+   if (rxlen < S21_MIN_PKT_LEN || buf[0] != STX || buf[rxlen - 1] != ETX || buf[1] != cmd + 1 || buf[2] != cmd2)
+   {  
+      // Malformed response, no proper S21
+      daikin.talking = 0;       // Protocol is broken, will restart communication
       jo_t j = jo_comms_alloc ();
       if (buf[0] != STX)
          jo_bool (j, "badhead", 1);

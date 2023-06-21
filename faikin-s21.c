@@ -33,11 +33,30 @@ int   powerful = 0;
 int   eco = 0;
 int   home = 245; // Multiplied by 10
 int   outside = 205;
-int   liquid = 185;
+int   inlet = 185;
+
+static void hexdump_raw(const unsigned char *buf, unsigned int len)
+{
+   for (int i = 0; i < len; i++)
+      printf(" %02X", buf[i]);
+   printf("\n");
+}
+
+static void hexdump(const char *header, const unsigned char *buf, unsigned int len)
+{
+   if (dump) {
+      printf("%s:", header);
+      hexdump_raw(buf, len);
+   }
+}
 
 static void serial_write(int p, const unsigned char *response, unsigned int pkt_len)
 {
-   int l = write(p, response, pkt_len);
+   int l;
+
+   hexdump("Tx", response, pkt_len);
+
+   l = write(p, response, pkt_len);
 
    if (l < 0) {
 	  perror("Serial write failed");
@@ -98,13 +117,6 @@ static void send_temp(int p, unsigned char *response, const unsigned char *cmd, 
 	response[6] = buf[0];
 	
 	s21_reply(p, response, cmd, S21_PAYLOAD_LEN);
-}
-
-static void hexdump(const unsigned char *buf, unsigned int len)
-{
-   for (int i = 0; i < len; i++)
-      printf(" %02X", buf[i]);
-   printf("\n");
 }
 
 int
@@ -204,11 +216,8 @@ main(int argc, const char *argv[])
       }
       if (!len)
          continue;
-      if (dump)
-      {
-         printf("[31mRx");
-		 hexdump(buf, len);
-      }
+	 
+	  hexdump("Rx", buf, len);
 
       chksum = s21_checksum(buf, len);
       if (chksum != buf[len - 2]) {
@@ -239,7 +248,7 @@ main(int argc, const char *argv[])
 			// Payload offset 2 and 3 are always '0', seem unused
 
 			printf(" Set swing %d spare bytes", swing);
-			hexdump(&buf[S21_PAYLOAD_OFFSET + 1], S21_PAYLOAD_LEN - 1);
+			hexdump_raw(&buf[S21_PAYLOAD_OFFSET + 1], S21_PAYLOAD_LEN - 1);
 			break;
 		 case '6':
 		    powerful = buf[S21_PAYLOAD_OFFSET + 0] == '2'; // '2' or '0'
@@ -247,11 +256,11 @@ main(int argc, const char *argv[])
 			// both on and off. Bug or feature ?
 
 			printf(" Set powerful %d spare bytes", powerful);
-			hexdump(&buf[S21_PAYLOAD_OFFSET + 1], S21_PAYLOAD_LEN - 1);
+			hexdump_raw(&buf[S21_PAYLOAD_OFFSET + 1], S21_PAYLOAD_LEN - 1);
 			break;
 		 default:
             printf(" Set unknown:");
-		    hexdump(buf, len);
+		    hexdump_raw(buf, len);
 		    break;
 		 }
 
@@ -333,6 +342,25 @@ main(int argc, const char *argv[])
 	     case 'H':
 		    send_temp(p, response, buf, home);
 		    break;
+	     case 'I':
+		    send_temp(p, response, buf, inlet);
+		    break;
+	     case 'a':
+		    send_temp(p, response, buf, outside);
+		    break;
+	     case 'L':
+		    // No idea what this is, comments in Faikin code say it's fan speed
+			// This sample value was grabbed from my FTXF20D; when turned off,
+			// it reports '000'. Let's try. It should most likely read 052, because
+			// after some time it reported '350', should have been 053. This also
+			// follows logic of reporting sensor temperatures in inverse order
+			// (see send_temp())
+		    response[S21_PAYLOAD_OFFSET + 0] = '2';
+			response[S21_PAYLOAD_OFFSET + 1] = '5';
+			response[S21_PAYLOAD_OFFSET + 2] = '0';
+			
+			s21_reply(p, response, buf, 3); // Nontypical response, 3 bytes, not 4!
+		    break;
 		 default:
 		    s21_nak(p, buf);
 		    continue;
@@ -352,6 +380,8 @@ main(int argc, const char *argv[])
 		    exit(255);
 	     }
 	  } while (len != 1);
+
+      hexdump("Rx", buf, 1);
 
 	  if (debug && buf[0] != ACK) {
 		 printf("Protocol error: expected ACK, got 0x%02X\n", buf[0]);
