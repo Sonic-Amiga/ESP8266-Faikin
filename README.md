@@ -16,10 +16,10 @@ goals are:
 - Backport ESP32-Faikin to ESP8266 architecture
 - Support original HTTP+JSON-based BRP communication protocol, at least enough to support OpenHAB
 
-Since various ESP8266-based hardware is widely accessible, am making this project opensource. A (partly) reverse-engineered Daichi controller
+Since various ESP8266-based hardware is widely accessible, i am making this project opensource. A (partly) reverse-engineered Daichi controller
 schematic is available in "Hardware" folder for those who would be interested in implementing their own board based on this or similar ESP8266
 module. Since violating someone else's possible design copyrights is not the goal of this project, the schematic is incomplete. It does not
-contain exact values for parts (many of these are impossible to determine without complete disassembly), it's only enough for use as a referense,
+contain exact values for parts (many of these are impossible to determine without complete disassembly), it's only enough for use as a reference,
 to understand how the module is interfaced and what pins are in use. There's nothing special to that really; any electronics engineer is able to
 put together such a board with minimum efforts.
 
