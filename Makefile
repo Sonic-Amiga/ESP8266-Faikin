@@ -82,9 +82,6 @@ update:
 ftdi: ftdizap/ftdizap
 	./ftdizap/ftdizap --serial="RevK" --description="Faikin" --cbus2-mode=17 --self-powered=1
 
-PCBCase/case: PCBCase/case.c
-	make -C PCBCase
-
 ifeq ($(shell uname),Darwin)
 INCLUDES=-I/usr/local/include/
 LIBS=-L/usr/local/Cellar/popt/1.18/lib/
@@ -115,14 +112,3 @@ faikinlog: faikinlog.c SQLlib/sqllib.o AJL/ajl.o main/acextras.m main/acfields.m
 
 faikingraph: faikingraph.c SQLlib/sqllib.o AXL/axl.o
 	cc -O -o $@ $< -lpopt -lmosquitto -ISQLlib SQLlib/sqllib.o -IAXL AXL/axl.o -lcurl ${OPTS}
-
-%.stl:	%.scad
-	echo "Making $@"
-	/Applications/OpenSCAD.app/Contents/MacOS/OpenSCAD $< -o $@
-	echo "Made $@"
-
-stl: 	PCB/Faikin/Faikin.stl
-
-PCB/Faikin/Faikin.scad: PCB/Faikin/Faikin.kicad_pcb PCBCase/case Makefile
-	PCBCase/case -o $@ $< --edge=2 --base=3
-

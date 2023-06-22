@@ -23,7 +23,19 @@ contain exact values for parts (many of these are impossible to determine withou
 to understand how the module is interfaced and what pins are in use. There's nothing special to that really; any electronics engineer is able to
 put together such a board with minimum efforts.
 
-At the moment of writing this project doesn't work yet; it is a work in progress.
+# Functionality
+
+* Compatible with original BRP series Daikin online controllers; drop-in replacement
+* Simple local web based control with live websocket status, easy to save as desktop icon on a mobile phone.
+* MQTT reporting and controls
+* Includes linux mysql/mariadb based logging and graphing tools
+* Works with [EnvMon](https://github.com/revk/ESP32-EnvMon) Environmental Monitor for finer control and status display
+* Automatically works out if S21 or alternative protocol used on ducted units
+
+# Supported hardware
+
+* Daichi DW22-B Wi-fi controller ver.03
+* AnyDIY ESP8266-based board; reference schematic included.
 
 # Set-up
 
@@ -42,29 +54,13 @@ Local interactive web control page using *hostname*.local, no app required, no e
 - [Setup](Manuals/Setup.md) Manual
 - [Advanced](Manuals/Advanced.md) Manual
 
-# Design
-
-* KiCad PCB designs included
-* 3D printed case STL files
-* Documentation of reverse engineered protocol included
-
-Basically, Daikin have gone all cloudy with the latest WiFi controllers. This module is designed to provide an alternative.
-
-* Simple local web based control with live websocket status, easy to save as desktop icon on a mobile phone.
-* MQTT reporting and controls
-* Includes linux mysql/mariadb based logging and graphing tools
-* Works with [EnvMon](https://github.com/revk/ESP32-EnvMon) Environmental Monitor for finer control and status display
-* Automatically works out if S21 or alternative protocol used on ducted units
-* Backwards compatible `/aircon/get_control_info` and `/aircon/set_control_info` URLs (work in progress)
-
 # Building
 
 The build requires [ESP8266 RTOS SDK v3.x](https://docs.espressif.com/projects/esp8266-rtos-sdk/en/latest/)
 
-Git clone this `--recursive` to get all the submodules, and it should build with just `make`. There are make targets for other variables, but this hardware is the `make pico` version. The `make` actually runs the normal `idf.py` to build with then uses cmake. `make menuconfig` can be used to fine tune the settings, but the defaults should be mostly sane. `make flash` should work to program. You will need a programming lead, e.g. [Tazmotizer](https://github.com/revk/Shelly-Tasmotizer-PCB) or similar, and of course the full ESP IDF environment.
-
-If you want to purchase an assembled PCB, see [A&A circuit boards](https://www.aa.net.uk/etc/circuit-boards/)
-
-The wiring from the existing wifi modules fits directly (albeit only 4 pins used).
-
-![272012](https://user-images.githubusercontent.com/996983/169694456-bd870348-f9bf-4c31-a2e3-00da13320ffc.jpg)
+Git clone this `--recursive` to get all the submodules, and it should build with just `make`. There are make targets
+for other variables, but this hardware is the `make pico` version. The `make` actually runs the normal `idf.py` to build with
+then uses cmake. `make menuconfig` can be used to fine tune the settings, but the defaults should be mostly sane.
+`make flash` should work to program. Any basic USB-to-5V-TTL-serial adapter should be fine; i used 
+[WaveShare PL2303](https://www.waveshare.com/product/pl2303-usb-uart-board-type-a.htm), and of course the full ESP IDF
+environment.
