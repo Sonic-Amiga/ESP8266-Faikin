@@ -15,7 +15,7 @@ Just connect your reflashed Daichi module to the conditioner and power up.
 
 You may save up on a lead by building your own; Daichi charges substantially for them. You need a mini-USB connector
 on one side; and a 5 pin connector to match the plug for the official Daikin WiFi modules on another.
-<img src="../hardware/S21_Connector_FXF20D.png">
+<img src="../Hardware/S21_Connector_FTXF20D.png">
 See included KiCAD schematic in hardware/ folder for details. Note that Daikin loves to play with pinouts, so you may
 need to verify yours. You need to locate the GND, Power, Tx, and Rx pins on the S21 connector and connect appropriately.
 Be careful with power pin as it typically provides 12-14V !
