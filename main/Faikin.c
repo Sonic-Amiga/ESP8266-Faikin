@@ -1235,7 +1235,11 @@ web_root (httpd_req_t * req)
                                 "s('⏻',(o.slave?'❋':'')+(o.antifreeze?'❄':''));"     //
                                 "s('Fan',(o.fanrpm?o.fanrpm+'RPM':'')+(o.antifreeze?'❄':'')+(o.control?'✷':''));"      //
                                 "e('fan',o.fan);"  //
-                                "if(o.shutdown){s('shutdown','Restarting: '+o.shutdown);h('shutdown',true);};" //
+                                "if(o.shutdown){"
+                                    "s('shutdown','Restarting: '+o.shutdown);"
+                                    "h('shutdown',true);"
+                                 "} else "
+                                    "h('shutdown',false);"
                              "}"
                              "function c()"
                              "{"    //
@@ -1245,7 +1249,7 @@ web_root (httpd_req_t * req)
                                    "if (this.readyState == 4) {"
                                       "if (this.status == 200)"
                                          "decode(this.responseText);"
-                                      "else"
+                                      "else "
 		                                   "g('top').className='off'"
                                    "}"
                                 "};"
