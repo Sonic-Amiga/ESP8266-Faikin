@@ -1421,6 +1421,18 @@ static char brp_mode()
 }
 
 static esp_err_t
+web_get_model_info (httpd_req_t * req)
+{
+   httpd_resp_set_type (req, "text/plain");
+   char resp[1000],
+    *o = resp;
+   o += sprintf (o, "ret=OK");
+   o += sprintf (o, ",model=0000");     // Don't know it
+   httpd_resp_sendstr (req, resp);
+   return ESP_OK;
+}
+
+static esp_err_t
 web_get_control_info (httpd_req_t * req)
 {
    httpd_resp_set_type (req, "text/plain");
@@ -1925,6 +1937,7 @@ app_main ()
          register_get_uri ("/status", web_status);
          register_get_uri ("/control", web_control);
          register_get_uri ("/common/basic_info", web_get_basic_info);
+         register_get_uri ("/aircon/get_model_info", web_get_model_info);
          register_get_uri ("/aircon/get_control_info", web_get_control_info);
          register_get_uri ("/aircon/set_control_info", web_set_control_info);
          register_get_uri ("/aircon/get_sensor_info", web_get_sensor_info);
