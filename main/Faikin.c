@@ -352,8 +352,8 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
          if (check_length(cmd, cmd2, len, 2, payload))
          {
             set_val (econo, payload[1] == '2' ? 1 : 0);
-            break;
          }
+         break;
          // Check 'G'
       }
    if (cmd == 'S')
