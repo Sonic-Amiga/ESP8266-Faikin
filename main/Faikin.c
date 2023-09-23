@@ -1130,6 +1130,12 @@ web_root (httpd_req_t * req)
       httpd_resp_sendstr_chunk (req, temp);
       addf (tag);
    }
+   void addnote (const char *note)
+   {
+      httpd_resp_sendstr_chunk (req, "<tr><td colspan=6>");
+      httpd_resp_sendstr_chunk (req, note);
+      httpd_resp_sendstr_chunk (req, "</td></tr>");
+   }
    httpd_resp_sendstr_chunk (req, "<tr>");
    addb ("Power", "power");
    httpd_resp_sendstr_chunk (req, "</tr>");
@@ -1180,15 +1186,19 @@ web_root (httpd_req_t * req)
          httpd_resp_sendstr_chunk (req, field);
          httpd_resp_sendstr_chunk (req, "',this.value);\"></td>");
       }
-      httpd_resp_sendstr_chunk (req, "<div id=remote><hr><p>Automated local controls</p><table>");
-      add ("Track", "autor", "Off", "0", "±½℃", "0.5", "±1℃", "1", "±2℃", "2", NULL);
+      httpd_resp_sendstr_chunk (req,
+                                "<div id=remote><hr><p>Faikin-auto mode (sets hot/cold and temp high/low to aim for the following target), and timed and auto power on/off.</p><table>");
+      add ("Enable", "autor", "Off", "0", "±½℃", "0.5", "±1℃", "1", "±2℃", "2", NULL);
       addtemp ("Target", "autot");
+      addnote ("Timed on and off (set other that 00:00)<br>Automated on/off if temp is way off target.");
       httpd_resp_sendstr_chunk (req, "<tr>");
       addtime ("On", "auto1");
       addtime ("Off", "auto0");
-      addb ("Auto 0/1", "autop");
+      addb ("Auto", "autop");
+      httpd_resp_sendstr_chunk (req, "</tr>");
       if (ble)
       {
+         addnote ("External temperature reference for Faikin-auto mode");
          httpd_resp_sendstr_chunk (req, "<tr><td>BLE</td><td colspan=6>");
          httpd_resp_sendstr_chunk (req, "<select name=autob onchange=\"w('autob',this.options[this.selectedIndex].value);\">");
          if (!*autob)
