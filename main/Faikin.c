@@ -1978,10 +1978,12 @@ app_main ()
             daikin.online = daikin.talking;
             daikin.status_changed = 1;
          }
-      } else {
-         // Mock configuration for interface testing
+      } else
+      {                         // Mock configuration for interface testing
          s21 = 1;
+         protocol_set = 1;
          daikin.control_changed = 0;
+         daikin.online = 1;
       }
       if (ha)
          daikin.ha_send = 1;
