@@ -616,8 +616,11 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
       return S21_OK;
    }
    loopback = 0;
+
+   // If we've got an STX, S21 protocol is now confirmed; we won't change it any more
    if (buf[0] == STX)
-      protocol_set = 1; // Got an STX, S21 protocol chosen
+      protocol_set = 1;
+
    // An expected S21 reply contains the first character of the command
    // incremented by 1, the second character is left intact
    if (rxlen < S21_MIN_PKT_LEN || buf[0] != STX || buf[rxlen - 1] != ETX || buf[1] != cmd + 1 || buf[2] != cmd2)
@@ -1949,9 +1952,12 @@ app_main ()
       daikin.temp = 20.0;
    }
 
-   while (1)
-   {                            // Main loop
+   while (1) // Main loop
+   {
+      // We're (re)starting comms from scratch, so set "talking" flag.
+      // This signals protocol integrity and actually enables communicating with the AC.
       daikin.talking = 1;
+
       if (uart != UART_NONE)
       {
          // Poke UART
@@ -1980,7 +1986,8 @@ app_main ()
       if (ha)
          daikin.ha_send = 1;
       do
-      {                         // Polling loop
+      {
+         // Polling loop. We exit from here only if we get a protocol error
          usleep (1000000LL - (esp_timer_get_time () % 1000000LL));      /* wait for next second */
 #ifdef ELA
          if (ble && *autob)
@@ -2011,6 +2018,8 @@ app_main ()
             daikin.mintarget = (autot - autor) / 10.0;
             daikin.maxtarget = (autot + autor) / 10.0;
          }
+
+         // Talk to the AC
          if (uart != UART_NONE)
          {
             if (s21)
@@ -2018,7 +2027,9 @@ app_main ()
                char temp[5];
                if (debug)
                   s21debug = jo_object_alloc ();
-               // These are what their wifi polls
+               // Poll the AC status.
+               // Each value has a smart NAK counter (see macro below), which allows
+               // for autodetecting unsupported commands
 #define poll(a,b,c,d)                         \
    static uint8_t a##b##d=10;                 \
    if(a##b##d){                               \
@@ -2030,6 +2041,7 @@ app_main ()
    }                                          \
    if(!daikin.talking)                        \
       a##b##d=10;
+
                poll (F, 1, 0,);
                if (debug)
                {
@@ -2071,6 +2083,8 @@ app_main ()
 #undef poll
                if (debug)
                   revk_info ("s21", &s21debug);
+
+               // Now send new values, requested by the user, if any
                if (daikin.control_changed & (CONTROL_power | CONTROL_mode | CONTROL_temp | CONTROL_fan))
                {                // D1
                   xSemaphoreTake (daikin.mutex, portMAX_DELAY);
@@ -2144,6 +2158,9 @@ app_main ()
                daikin_command (0xCB, sizeof (cb), cb);
             }
          }
+
+         // Report status changes if happen on AC side. Ignore if we've just sent
+         // some new control values
          if (!daikin.control_changed && (daikin.status_changed || daikin.status_report || daikin.mode_changed))
          {
             uint8_t send = ((debug || (livestatus && daikin.status_report) || daikin.mode_changed) ? 1 : 0);
@@ -2468,6 +2485,9 @@ app_main ()
          }
       }
       while (daikin.talking);
+      // We're here if protocol has been broken. We'll reconfigure the UART
+      // and restart from scratch, possibly changing the protocol, if we're
+      // in detection phase.
       uart_driver_delete (uart);
    }
 }
