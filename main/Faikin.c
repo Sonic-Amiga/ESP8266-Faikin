@@ -1301,7 +1301,7 @@ web_root (httpd_req_t * req)
                              "n('auto1',o.auto1);"      //
                              "s('Tautot',(o.autot?o.autot+'℃':''));"  //
                              "s('Coil',(o.liquid?o.liquid+'℃':'---'));"       //
-                             "s('⏻',(o.slave?'❋':'')+(o.antifreeze?'❄':''));"     //
+                             "s('0/1',(o.slave?'❋':'')+(o.antifreeze?'❄':''));"     //
                              "s('Fan',(o.fanrpm?o.fanrpm+'RPM':'')+(o.antifreeze?'❄':'')+(o.control?'✷':''));"      //
                              "e('fan',o.fan);"  //
                              "if(o.shutdown){"
