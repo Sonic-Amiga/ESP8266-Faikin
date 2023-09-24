@@ -521,6 +521,8 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
    {
       jo_t j = jo_comms_alloc ();
       jo_base16 (j, "dump", buf, txlen + S21_MIN_PKT_LEN);
+      char c[3] = { cmd, cmd2 };
+      jo_stringn (j, c, payload, txlen);
       revk_info ("tx", &j);
    }
    uart_write_bytes (uart, (char *)buf, S21_MIN_PKT_LEN + txlen);
@@ -599,6 +601,8 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
    {
       jo_t j = jo_comms_alloc ();
       jo_base16 (j, "dump", buf, rxlen);
+      char c[3] = { buf[1], buf[2] };
+      jo_stringn (j, c, (char *) buf + 3, rxlen - 5);
       revk_info ("rx", &j);
    }
    // Check checksum
@@ -959,7 +963,7 @@ jo_t
 daikin_status (void)
 {
    xSemaphoreTake (daikin.mutex, portMAX_DELAY);
-   jo_t j = jo_object_alloc ();
+   jo_t j = jo_comms_alloc ();
 #define b(name)         if(daikin.status_known&CONTROL_##name)jo_bool(j,#name,daikin.name);
 #define t(name)         if(daikin.status_known&CONTROL_##name){if(isnan(daikin.name)||daikin.name>=100)jo_null(j,#name);else jo_litf(j,#name,"%.1f",daikin.name);}
 #define i(name)         if(daikin.status_known&CONTROL_##name)jo_int(j,#name,daikin.name);
@@ -2480,7 +2484,7 @@ app_main ()
                last = clock;
                if (daikin.statscount)
                {
-                  jo_t j = jo_object_alloc ();
+                  jo_t j = jo_comms_alloc ();
                   {             // Timestamp
                      struct tm tm;
                      gmtime_r (&clock, &tm);
