@@ -1029,12 +1029,8 @@ daikin_status (void)
 static void
 web_head (httpd_req_t * req, const char *title)
 {
-   httpd_resp_set_type (req, "text/html;charset=utf-8");
-   httpd_resp_sendstr_chunk (req, "<meta name='viewport' content='width=device-width, initial-scale=1'>");
-   httpd_resp_sendstr_chunk (req, "<html><head><title>");
-   if (title)
-      httpd_resp_sendstr_chunk (req, title);
-   httpd_resp_sendstr_chunk (req, "</title></head><style>"      //
+   revk_web_head (req, title);
+   httpd_resp_sendstr_chunk (req, "<style>"     //
                              "body{font-family:sans-serif;background:#8cf;}"    //
                              ".on{opacity:1;transition:1s;}"    // 
                              ".off{opacity:0;transition:1s;}"   // 
@@ -1053,21 +1049,6 @@ web_head (httpd_req_t * req, const char *title)
    if (title)
       httpd_resp_sendstr_chunk (req, title);
    httpd_resp_sendstr_chunk (req, "</h1>");
-}
-
-static esp_err_t
-web_foot (httpd_req_t * req)
-{
-   char temp[20];
-   httpd_resp_sendstr_chunk (req, "<hr><address>");
-   httpd_resp_sendstr_chunk (req, appname);
-   httpd_resp_sendstr_chunk (req, ": ");
-   httpd_resp_sendstr_chunk (req, revk_version);
-   httpd_resp_sendstr_chunk (req, " ");
-   httpd_resp_sendstr_chunk (req, revk_build_date (temp) ? : "?");
-   httpd_resp_sendstr_chunk (req, "</address></body></html>");
-   httpd_resp_sendstr_chunk (req, NULL);
-   return ESP_OK;
 }
 
 static esp_err_t
@@ -1159,7 +1140,7 @@ web_root (httpd_req_t * req)
       addh (tag);
       char temp[300];
       sprintf (temp,
-               "<td colspan=5><input type=range class=temp min=%d max=%d step=%s id=%s onchange=\"w('%s',+this.value);\"><span id=T%s></span></td>",
+               "<td colspan=6><input type=range class=temp min=%d max=%d step=%s id=%s onchange=\"w('%s',+this.value);\"><span id=T%s></span></td>",
                tmin, tmax, (proto & PROTO_S21) ? "0.5" : "0.1", field, field, field);
       httpd_resp_sendstr_chunk (req, temp);
       addf (tag);
@@ -1169,7 +1150,7 @@ web_root (httpd_req_t * req)
    httpd_resp_sendstr_chunk (req, "</tr>");
    add ("Mode", "mode", "Auto", "A", "Heat", "H", "Cool", "C", "Dry", "D", "Fan", "F", NULL);
    if (fanstep == 1 || (!fanstep && (proto & PROTO_S21)))
-      add ("Fan", "fan", "1", "1", "2", "2", "3", "3", "4", "4", "5", "5", "Auto", "A", "(Night)", "Q", NULL);
+      add ("Fan", "fan", "1", "1", "2", "2", "3", "3", "4", "4", "5", "5", "Auto", "A", "Night", "Q", NULL);
    else
       add ("Fan", "fan", "Low", "1", "Mid", "3", "High", "5", NULL);
    addtemp ("Set", "temp");
@@ -1276,8 +1257,6 @@ web_root (httpd_req_t * req)
 #endif
    httpd_resp_sendstr_chunk (req, "</form>");
    httpd_resp_sendstr_chunk (req, "</div>");
-   if (webcontrol >= 2)
-      httpd_resp_sendstr_chunk (req, "<p><a href='revk-settings'>Settings</a></p>");
    httpd_resp_sendstr_chunk (req, "<script>"    //
                              "function g(n){return document.getElementById(n);};"       //
                              "function b(n,v){var d=g(n);if(d)d.checked=v;}"    //
@@ -1345,7 +1324,7 @@ web_root (httpd_req_t * req)
                                 "window.setInterval(c, 1000);"
                              "}"
                              "</script>");
-   return web_foot (req);
+   return revk_web_foot (req, 0, webcontrol >= 2 ? 1 : 0);
 }
 
 static const char *
@@ -1976,6 +1955,46 @@ register_get_uri (const char *uri, esp_err_t (*handler) (httpd_req_t * r))
    register_uri (&uri_struct);
 }
 
+
+void
+revk_web_extra (httpd_req_t * req)
+{
+   void b (const char *tag, const char *field, int value, const char *desc)
+   {
+      httpd_resp_sendstr_chunk (req, "<tr><td>");
+      httpd_resp_sendstr_chunk (req, tag);
+      httpd_resp_sendstr_chunk (req, "</td><td>");
+      void io (const char *v, const char *t)
+      {
+         httpd_resp_sendstr_chunk (req, "<label for=");
+         httpd_resp_sendstr_chunk (req, field);
+         httpd_resp_sendstr_chunk (req, v);
+         httpd_resp_sendstr_chunk (req, "><input type=radio value=");
+         httpd_resp_sendstr_chunk (req, v);
+         httpd_resp_sendstr_chunk (req, " id=");
+         httpd_resp_sendstr_chunk (req, field);
+         httpd_resp_sendstr_chunk (req, v);
+         httpd_resp_sendstr_chunk (req, " name=");
+         httpd_resp_sendstr_chunk (req, field);
+         if (value == atoi (v))
+            httpd_resp_sendstr_chunk (req, " checked");
+         httpd_resp_sendstr_chunk (req, ">");
+         httpd_resp_sendstr_chunk (req, t);
+         httpd_resp_sendstr_chunk (req, "</label> ");
+      }
+      io ("0", "Off");
+      io ("1", "On");
+      if (desc && *desc)
+      {
+         httpd_resp_sendstr_chunk (req, "</td><td>");
+         httpd_resp_sendstr_chunk (req, desc);
+      }
+      httpd_resp_sendstr_chunk (req, "</td></tr>");
+   }
+   b ("Home Assistant", "ha", ha, "Announces HA config via MQTT");
+   b ("BLE Sensors", "ble", ble, "Remote BLE temperature sensor");
+   b ("Dark mode", "dark", dark, "Dark mode means on-board LED is normally switched off");
+}
 
 // --------------------------------------------------------------------------------
 // Main
