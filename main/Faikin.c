@@ -1890,7 +1890,7 @@ int faikin_log_putc(int c) {
 // Fortunately Espressif guys have come accross this problem themselves in a
 // different scenario, so they implemented this internal flag as a stopgap.
 // It's normally manipulated by code in spi_flash.
-// This solution also equires CONFIG_ETS_PRINTF_EXIT_WHEN_FLASH_RW to work.
+// This solution also requires CONFIG_ETS_PRINTF_EXIT_WHEN_FLASH_RW to work.
 #ifndef CONFIG_ETS_PRINTF_EXIT_WHEN_FLASH_RW
 #warning CONFIG_ETS_PRINTF_EXIT_WHEN_FLASH_RW is not set, UART clash is possible!
 #endif
