@@ -1130,12 +1130,6 @@ web_root (httpd_req_t * req)
       httpd_resp_sendstr_chunk (req, temp);
       addf (tag);
    }
-   void addnote (const char *note)
-   {
-      httpd_resp_sendstr_chunk (req, "<tr><td colspan=6>");
-      httpd_resp_sendstr_chunk (req, note);
-      httpd_resp_sendstr_chunk (req, "</td></tr>");
-   }
    httpd_resp_sendstr_chunk (req, "<tr>");
    addb ("Power", "power");
    httpd_resp_sendstr_chunk (req, "</tr>");
@@ -1176,6 +1170,13 @@ web_root (httpd_req_t * req)
 #ifdef ELA
    if (autor || *autob || !daikin.remote)
    {
+      void addnote (const char *note)
+      {
+         httpd_resp_sendstr_chunk (req, "<tr><td colspan=6>");
+         httpd_resp_sendstr_chunk (req, note);
+         httpd_resp_sendstr_chunk (req, "</td></tr>");
+      }
+
       void addtime (const char *tag, const char *field)
       {
          httpd_resp_sendstr_chunk (req, "<td align=right>");
