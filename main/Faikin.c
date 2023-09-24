@@ -25,6 +25,7 @@ static const char TAG[] = "Faikin";
 // Settings (RevK library used by MQTT setting command)
 #define	settings		\
 	u8(webcontrol,2)	\
+	u8(protocol,0)		\
 	bl(debug)		\
 	bl(dump)		\
 	bl(livestatus)		\
@@ -98,12 +99,14 @@ settings
 #define	s(name,len)	b(name)
 #include "acextras.m"
 
+#define	PROTO_S21	1
+const char *protoname[] = { "X50", "S21" };
 
 // Globals
 static httpd_handle_t webserver = NULL;
-static uint8_t s21 = 0;         // Currently using S21 mode
 static uint8_t protocol_set = 0;        // protocol confirmed
 static uint8_t loopback = 0;    // Loopback detected
+static uint8_t proto = 0;
 #ifdef ELA
 static bleenv_t *bletemp = NULL;
 #endif
@@ -193,7 +196,7 @@ daikin_set_temp (const char *name, float *ptr, uint64_t flag, float value)
 {                               // Setting a value (float)
    if (*ptr == value)
       return NULL;              // No change
-   if (s21)
+   if (proto & PROTO_S21)
       value = roundf (value * 2.0) / 2.0;       // S21 only does 0.5C steps
    xSemaphoreTake (daikin.mutex, portMAX_DELAY);
    *ptr = value;
@@ -287,7 +290,7 @@ jo_t
 jo_comms_alloc (void)
 {
    jo_t j = jo_object_alloc ();
-   jo_bool (j, protocol_set ? "s21" : "s21-try", s21);
+   jo_string (j, "protocol", protoname[proto]);
    return j;
 }
 
@@ -491,6 +494,19 @@ daikin_response (uint8_t cmd, int len, uint8_t * payload)
    }
 }
 
+void
+protocol_found (void)
+{
+   protocol_set = 1;
+   if (proto != protocol)
+   {
+      jo_t j = jo_object_alloc ();
+      jo_int (j, "protocol", proto);
+      revk_setting (j);
+      jo_free (&j);
+   }
+}
+
 // Timeout value for serial port read
 #define READ_TIMEOUT (500 / portTICK_PERIOD_MS)
 
@@ -628,11 +644,9 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
       return S21_OK;
    }
    loopback = 0;
-
    // If we've got an STX, S21 protocol is now confirmed; we won't change it any more
-   if (buf[0] == STX)
-      protocol_set = 1;
-
+   if (buf[0] == STX && !protocol_set)
+      protocol_found ();
    // An expected S21 reply contains the first character of the command
    // incremented by 1, the second character is left intact
    if (rxlen < S21_MIN_PKT_LEN || buf[0] != STX || buf[rxlen - 1] != ETX || buf[1] != cmd + 1 || buf[2] != cmd2)
@@ -747,12 +761,12 @@ daikin_command (uint8_t cmd, int txlen, uint8_t * payload)
       return;
    }
    loopback = 0;
-   if (buf[0] == 0x06)
-      protocol_set = 1;         // Good message format
+   if (buf[0] == 0x06 && !protocol_set)
+      protocol_found ();
    daikin_response (cmd, rxlen - 6, buf + 5);
 }
 
-// Parse state JSON and apply values (?)
+// Parse control JSON, arrived by MQTT, and apply values
 const char *
 daikin_control (jo_t j)
 {                               // Control settings as JSON
@@ -1133,7 +1147,7 @@ web_root (httpd_req_t * req)
       char temp[300];
       sprintf (temp,
                "<td colspan=5><input type=range class=temp min=%d max=%d step=%s id=%s onchange=\"w('%s',+this.value);\"><span id=T%s></span></td>",
-               tmin, tmax, s21 ? "0.5" : "0.1", field, field, field);
+               tmin, tmax, (proto & PROTO_S21) ? "0.5" : "0.1", field, field, field);
       httpd_resp_sendstr_chunk (req, temp);
       addf (tag);
    }
@@ -1141,7 +1155,7 @@ web_root (httpd_req_t * req)
    addb ("Power", "power");
    httpd_resp_sendstr_chunk (req, "</tr>");
    add ("Mode", "mode", "Auto", "A", "Heat", "H", "Cool", "C", "Dry", "D", "Fan", "F", NULL);
-   if (fanstep == 1 || (!fanstep && s21))
+   if (fanstep == 1 || (!fanstep && (proto & PROTO_S21)))
       add ("Fan", "fan", "1", "1", "2", "2", "3", "3", "4", "4", "5", "5", "Auto", "A", "(Night)", "Q", NULL);
    else
       add ("Fan", "fan", "Low", "1", "Mid", "3", "High", "5", NULL);
@@ -1761,7 +1775,7 @@ send_ha_config (void)
          jo_string (j, "fan_mode_cmd_t", "~/fan");
          jo_string (j, "fan_mode_stat_t", revk_id);
          jo_string (j, "fan_mode_stat_tpl", "{{value_json.fan}}");
-         if (fanstep == 1 || (!fanstep && s21))
+         if (fanstep == 1 || (!fanstep && (proto & PROTO_S21)))
          {
             jo_array (j, "fan_modes");
             jo_string (j, NULL, "auto");
@@ -1843,7 +1857,7 @@ ha_status (void)
    }
    if (daikin.status_known & CONTROL_fan)
    {
-      if (fanstep == 1 || (!fanstep && s21))
+      if (fanstep == 1 || (!fanstep && (proto & PROTO_S21)))
       {
          const char *fans[] = { "auto", "1", "2", "3", "4", "5", "night" };     // A12345Q
          jo_string (j, "fan", fans[daikin.fan]);
@@ -1885,8 +1899,13 @@ void uart_setup (void)
 {
    esp_err_t err = 0;
    if (!protocol_set)
-      s21 = 1 - s21;         // Flip
-   ESP_LOGI (TAG, "Starting UART%s", s21 ? " S21" : "");
+   {
+      proto++;
+      if (proto >= sizeof (protoname) / sizeof (*protoname))
+         proto = 0;
+   }
+   ESP_LOGI (TAG, "Trying %s", protoname[proto]);
+   sleep (1);
    // Shut off console log if it is using our UART
    if (uart == CONFIG_ESP_CONSOLE_UART_NUM) {
       FlashIsOnGoing = 1;
@@ -1898,10 +1917,10 @@ void uart_setup (void)
       esp_log_set_putchar(faikin_log_putc);
    }
    uart_config_t uart_config = {
-      .baud_rate = s21 ? 2400 : 9600,
+      .baud_rate = (proto & PROTO_S21) ? 2400 : 9600,
       .data_bits = UART_DATA_8_BITS,
       .parity = UART_PARITY_EVEN,
-      .stop_bits = s21 ? UART_STOP_BITS_2 : UART_STOP_BITS_1,
+      .stop_bits = (proto & PROTO_S21) ? UART_STOP_BITS_2 : UART_STOP_BITS_1,
       .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
    };
    if (!err)
@@ -2020,6 +2039,7 @@ app_main ()
       daikin.temp = 20.0;
    }
 
+   proto = protocol - 1;        // Starts one advanced
    while (1)
    {                            // Main loop
       // We're (re)starting comms from scratch, so set "talking" flag.
@@ -2029,9 +2049,8 @@ app_main ()
       {
          // Poke UART
          uart_setup ();
-         sleep (1);
          uart_flush (uart);     // Clean start
-         if (!s21)
+         if (!(proto & PROTO_S21))
          {                      // Startup
             daikin_command (0xAA, 1, (uint8_t[])
                             {
@@ -2047,7 +2066,7 @@ app_main ()
          }
       } else
       {                         // Mock configuration for interface testing
-         s21 = 1;
+         proto = PROTO_S21;
          protocol_set = 1;
          daikin.control_changed = 0;
          daikin.online = 1;
@@ -2087,11 +2106,10 @@ app_main ()
             daikin.mintarget = (autot - autor) / 10.0;
             daikin.maxtarget = (autot + autor) / 10.0;
          }
-
          // Talk to the AC
          if (uart != UART_NONE)
          {
-            if (s21)
+            if (proto & PROTO_S21)
             {                   // Older S21
                char temp[5];
                if (debug)
@@ -2400,7 +2418,7 @@ app_main ()
                {                // Power, mode, fan, automation
                   if (daikin.power)
                   {
-                     int step = (fanstep ? : s21 ? 1 : 2);
+                     int step = (fanstep ? : (proto & PROTO_S21) ? 1 : 2);
                      if ((b * 2 > t || daikin.slave) && !a)
                      {          // Mode switch
                         jo_string (j, "set-mode", hot ? "C" : "H");
@@ -2501,7 +2519,7 @@ app_main ()
                         set = max + reference - current + coolback;     // Cooling mode but apply positive offset to not actually cool any more than this
                   }
                   // Limit settings to acceptable values
-                  if (s21)
+                  if (proto & PROTO_S21)
                      set = roundf (set * 2.0) / 2.0;    // S21 only does 0.5C steps
                   if (set < tmin)
                      set = tmin;
@@ -2513,7 +2531,7 @@ app_main ()
             }
          } else
             controlstop ();
-         if (reporting && !revk_link_down ())
+         if (reporting && !revk_link_down () && protocol_set)
          {                      // Environment logging
             time_t clock = time (0);
             static time_t last = 0;
@@ -2547,7 +2565,7 @@ app_main ()
                }
             }
          }
-         if (daikin.ha_send)
+         if (daikin.ha_send && protocol_set)
          {
             send_ha_config ();
             ha_status ();       // Update status now sent
