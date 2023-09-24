@@ -2054,7 +2054,7 @@ app_main ()
                // Each value has a smart NAK counter (see macro below), which allows
                // for autodetecting unsupported commands
 #define poll(a,b,c,d)                         \
-   static uint8_t a##b##d=10;                 \
+   static uint8_t a##b##d=2;                  \
    if(a##b##d){                               \
       int r=daikin_s21_command(*#a,*#b,c,#d); \
       if (r==S21_OK)                          \
@@ -2063,8 +2063,7 @@ app_main ()
          a##b##d--;                           \
    }                                          \
    if(!daikin.talking)                        \
-      a##b##d=10;
-
+      a##b##d=2;
                poll (F, 1, 0,);
                if (debug)
                {
