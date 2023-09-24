@@ -1963,7 +1963,7 @@ app_main ()
       httpd_config_t config = HTTPD_DEFAULT_CONFIG ();
       // When updating the code below, make sure this is enough
       // Note that we're also 4 adding revk's web config handlers
-      config.max_uri_handlers = 16;
+      config.max_uri_handlers = 17;
       if (!httpd_start (&webserver, &config))
       {
          if (webcontrol >= 2)
