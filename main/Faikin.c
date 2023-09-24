@@ -290,7 +290,7 @@ jo_t
 jo_comms_alloc (void)
 {
    jo_t j = jo_object_alloc ();
-   jo_string (j, "protocol", protoname[proto]);
+   jo_string (j, "protocol", loopback ? "loopback" : protoname[proto]);
    return j;
 }
 
@@ -587,6 +587,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
       if (rxlen != 1)
       {
          daikin.talking = 0;
+         loopback = 0;
          jo_t j = jo_comms_alloc ();
          jo_bool (j, "timeout", 1);
          revk_error ("comms", &j);
@@ -601,6 +602,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
       if (uart_read_bytes (uart, buf + rxlen, 1, READ_TIMEOUT) != 1)
       {
          daikin.talking = 0;
+         loopback = 0;
          jo_t j = jo_comms_alloc ();
          jo_bool (j, "timeout", 1);
          jo_base16 (j, "data", buf, rxlen);
@@ -637,7 +639,12 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
    if (rxlen >= 5 && buf[0] == STX && buf[rxlen - 1] == ETX && buf[1] == cmd)
    {                            // Loop back
       daikin.talking = 0;
-      loopback = 1;
+      if (!loopback)
+      {
+         ESP_LOGE (TAG, "Loopback");
+         loopback = 1;
+         revk_blink (0, 0, "RGB");
+      }
       jo_t j = jo_comms_alloc ();
       jo_bool (j, "loopback", 1);
       revk_error ("comms", &j);
@@ -701,6 +708,7 @@ daikin_command (uint8_t cmd, int txlen, uint8_t * payload)
    if (rxlen <= 0)
    {
       daikin.talking = 0;
+      loopback = 0;
       jo_t j = jo_comms_alloc ();
       jo_bool (j, "timeout", 1);
       revk_error ("comms", &j);
@@ -754,7 +762,12 @@ daikin_command (uint8_t cmd, int txlen, uint8_t * payload)
    if (!buf[4])
    {                            // Tx sends 00 here, rx is 06
       daikin.talking = 0;
-      loopback = 1;
+      if (!loopback)
+      {
+         ESP_LOGE (TAG, "Loopback");
+         loopback = 1;
+         revk_blink (0, 0, "RGB");
+      }
       jo_t j = jo_comms_alloc ();
       jo_bool (j, "loopback", 1);
       revk_error ("comms", &j);
@@ -1182,6 +1195,7 @@ web_root (httpd_req_t * req)
    }
    httpd_resp_sendstr_chunk (req, "</table>");
    httpd_resp_sendstr_chunk (req, "<p id=offline style='display:none'><b>System is off line.</b></p>");
+   httpd_resp_sendstr_chunk (req, "<p id=loopback style='display:none'><b>System is in loopback test.</b></p>");
    httpd_resp_sendstr_chunk (req, "<p id=shutdown style='display:none;color:red;'></p>");
    httpd_resp_sendstr_chunk (req,
                              "<p id=slave style='display:none'>❋ Another unit is controlling the mode, so this unit is not operating at present.</p>");
@@ -1832,7 +1846,9 @@ ha_status (void)
    if (!ha)
       return;
    jo_t j = jo_object_alloc ();
-   if (daikin.status_known & CONTROL_online)
+   if (loopback)
+      jo_bool (j, "loopback", 1);
+   else if (daikin.status_known & CONTROL_online)
       jo_bool (j, "online", daikin.online);
    if (daikin.status_known & CONTROL_temp)
       jo_litf (j, "target", "%.2f", autor ? autot / 10.0 : daikin.temp);        // Target - either internal or what we are using as reference
