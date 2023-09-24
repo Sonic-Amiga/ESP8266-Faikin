@@ -193,6 +193,8 @@ daikin_set_temp (const char *name, float *ptr, uint64_t flag, float value)
 {                               // Setting a value (float)
    if (*ptr == value)
       return NULL;              // No change
+   if (s21)
+      value = roundf (value * 2.0) / 2.0;       // S21 only does 0.5C steps
    xSemaphoreTake (daikin.mutex, portMAX_DELAY);
    *ptr = value;
    daikin.control_changed |= flag;
@@ -339,12 +341,12 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
                set_temp (temp, s21_decode_target_temp(payload[2]));
             else if (!isnan (daikin.temp))
                set_temp (temp, daikin.temp);       // Does not have temp in other modes
-            if (payload[3] == 'A' && daikin.fan == 6)
-               set_val (fan, 6);   // Quiet (returns as auto)
-            else if (payload[3] == 'A')
-               set_val (fan, 0);   // Auto
-            else
+            if (payload[3] != 'A') // Set fan speed
                set_val (fan, "00012345"[payload[3] & 0x7] - '0');  // XXX12345 mapped to A12345Q
+            else if (daikin.fan == 6)
+               set_val (fan, 6);   // Quiet mode set (it returns as auto, so we assume it set to quiet if not powered on)
+            else if (!daikin.power || !daikin.fan || daikin.fanrpm >= 750)
+               set_val (fan, 0);   // Auto as fan too fast to be quiet mode
          }
          break;
       case '5':                // 'G5' - swing status
@@ -594,7 +596,8 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
          break;
    }
    // Send ACK regardless of packet quality. If we don't ack due to checksum error,
-   // for example, the response will be sent again
+   // for example, the response will be sent again.
+   // Note not all ACs do that. My FTXF20D doesn't - Sonic-Amiga
    temp = ACK;
    uart_write_bytes (uart, (char *)&temp, 1);
    if (dump)
@@ -816,9 +819,9 @@ daikin_control (jo_t j)
 
 // --------------------------------------------------------------------------------
 // Called by an MQTT client inside the revk library
-static const char *
+const char *
 mqtt_client_callback (int client, const char *prefix, const char *target, const char *suffix, jo_t j)
-{
+{                               // MQTT app callback
    const char *ret = NULL;
    if (client || !prefix || target || strcmp (prefix, prefixcommand))
       return NULL;              // Not for us or not a command from main MQTT
@@ -1707,6 +1710,20 @@ send_ha_config (void)
          free (topic);
       }
    }
+   void addfreq (const char *tag, const char *unit, const char *icon)
+   {
+      if (asprintf (&topic, "homeassistant/sensor/%s%s/config", revk_id, tag) >= 0)
+      {
+         jo_t j = make (tag, icon);
+         jo_string (j, "name", tag);
+         jo_string (j, "dev_cla", "frequency");
+         jo_string (j, "stat_t", revk_id);
+         jo_string (j, "unit_of_meas", unit);
+         jo_stringf (j, "val_tpl", "{{value_json.%s}}", tag);
+         revk_mqtt_send (NULL, 1, topic, &j);
+         free (topic);
+      }
+   }
    if (asprintf (&topic, "homeassistant/climate/%s/config", revk_id) >= 0)
    {
       jo_t j = make ("", "mdi:thermostat");
@@ -1791,6 +1808,8 @@ send_ha_config (void)
       addtemp ("outside", "mdi:thermometer");
    if (daikin.status_known & CONTROL_liquid)
       addtemp ("liquid", "mdi:coolant-temperature");
+   if (daikin.status_known & CONTROL_fanrpm)
+      addfreq ("fanrpm", "rpm", "mdi:fan");
 }
 
 static void
@@ -1815,6 +1834,8 @@ ha_status (void)
       jo_litf (j, "outside", "%.2f", daikin.outside);
    if (daikin.status_known & CONTROL_liquid)
       jo_litf (j, "liquid", "%.2f", daikin.liquid);
+   if (daikin.status_known & CONTROL_fanrpm)
+      jo_int (j, "fanrpm", daikin.fanrpm);
    if (daikin.status_known & CONTROL_mode)
    {
       const char *modes[] = { "fan_only", "heat", "cool", "auto", "4", "5", "6", "dry" };       // FHCA456D
@@ -2210,7 +2231,7 @@ app_main ()
          // some new control values
          if (!daikin.control_changed && (daikin.status_changed || daikin.status_report || daikin.mode_changed))
          {
-            uint8_t send = ((debug || (livestatus && daikin.status_report) || daikin.mode_changed) ? 1 : 0);
+            uint8_t send = ((debug || livestatus || daikin.status_report || daikin.mode_changed) ? 1 : 0);
             daikin.status_changed = 0;
             daikin.mode_changed = 0;
             daikin.status_report = 0;
