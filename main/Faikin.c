@@ -79,7 +79,7 @@ settings
 #undef s
 #undef sl
 #define PORT_INV 0x40
-#define port_mask(p) ((p)&63)
+#define port_mask(p) ((p)&0x3F)
    enum
 {                               // Number the control fields
 #define	b(name)		CONTROL_##name##_pos,
@@ -288,6 +288,15 @@ jo_comms_alloc (void)
 
 jo_t s21debug = NULL;
 
+enum
+{
+   S21_OK,
+   S21_NAK,
+   S21_NOACK,
+   S21_BAD,
+   S21_WAIT,
+};
+
 static int
 check_length(uint8_t cmd, uint8_t cmd2, int len, int required, const uint8_t * payload)
 {
@@ -304,7 +313,7 @@ check_length(uint8_t cmd, uint8_t cmd2, int len, int required, const uint8_t * p
 }
 
 // Decode S21 response payload
-void
+int
 daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
 {
    if (len > 1 && s21debug)
@@ -316,7 +325,7 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
    if (cmd == 'G')
       switch (cmd2)
       {
-      case '1': // 'G1' - basic status
+      case '1':                // 'G1' - basic status
          if (check_length(cmd, cmd2, len, S21_PAYLOAD_LEN, payload))
          {
             set_val (online, 1);
@@ -335,20 +344,20 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
                set_val (fan, "00012345"[payload[3] & 0x7] - '0');  // XXX12345 mapped to A12345Q
          }
          break;
-      case '5': // 'G5' - swing status
+      case '5':                // 'G5' - swing status
          if (check_length(cmd, cmd2, len, 1, payload))
          {
             set_val (swingv, (payload[0] & 1) ? 1 : 0);
             set_val (swingh, (payload[0] & 2) ? 1 : 0);
          }
          break;
-      case '6': // 'G6' - "powerful" mode
+      case '6':                // 'G6' - "powerful" mode
          if (check_length(cmd, cmd2, len, 1, payload))
          {
             set_val (powerful, payload[0] == '2' ? 1 : 0);
          }
          break;
-      case '7': // 'G7' - "eco" mode
+      case '7':                // 'G7' - "eco" mode
          if (check_length(cmd, cmd2, len, 2, payload))
          {
             set_val (econo, payload[1] == '2' ? 1 : 0);
@@ -391,6 +400,7 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
          }
       }
    }
+   return S21_OK;
 }
 
 void
@@ -476,15 +486,6 @@ daikin_response (uint8_t cmd, int len, uint8_t * payload)
    }
 }
 
-enum
-{
-   S21_OK,
-   S21_NAK,
-   S21_NOACK,
-   S21_BAD,
-   S21_WAIT,
-};
-
 // Timeout value for serial port read
 #define READ_TIMEOUT (500 / portTICK_PERIOD_MS)
 
@@ -504,13 +505,14 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
    }
    if (!daikin.talking)
       return S21_WAIT;          // Failed
-   uint8_t buf[256], temp;
+   uint8_t buf[256],
+     temp;
    buf[0] = STX;
    buf[1] = cmd;
    buf[2] = cmd2;
    if (txlen)
       memcpy (buf + 3, payload, txlen);
-   buf[3 + txlen] = s21_checksum(buf, S21_MIN_PKT_LEN + txlen);
+   buf[3 + txlen] = s21_checksum (buf, S21_MIN_PKT_LEN + txlen);
    buf[4 + txlen] = ETX;
    if (dump)
    {
@@ -553,7 +555,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
 
    // If we're here, we've got ACK
    if (cmd == 'D')
-      return S21_OK;            // No response expected
+         return S21_OK;         // No response expected
 
    // Now get ready to receive a response, we whould get STX first
    while (1)
@@ -597,7 +599,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
       revk_info ("rx", &j);
    }
    // Check checksum
-   uint8_t c = s21_checksum(buf, rxlen);
+   uint8_t c = s21_checksum (buf, rxlen);
    if (c != buf[rxlen - 2])
    {                            // Sees checksum of 03 actually sends as 05
       jo_t j = jo_comms_alloc ();
@@ -624,7 +626,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
    // An expected S21 reply contains the first character of the command
    // incremented by 1, the second character is left intact
    if (rxlen < S21_MIN_PKT_LEN || buf[0] != STX || buf[rxlen - 1] != ETX || buf[1] != cmd + 1 || buf[2] != cmd2)
-   {  
+   {
       // Malformed response, no proper S21
       daikin.talking = 0;       // Protocol is broken, will restart communication
       jo_t j = jo_comms_alloc ();
@@ -636,8 +638,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
       revk_error ("comms", &j);
       return S21_BAD;
    }
-   daikin_s21_response (buf[1], buf[2], rxlen - 5, buf + 3);
-   return S21_OK;
+   return daikin_s21_response (buf[1], buf[2], rxlen - 5, buf + 3);
 }
 
 void
@@ -1053,7 +1054,7 @@ web_root (httpd_req_t * req)
    // webcontrol=1 means user settings, not wifi settings
    // webcontrol=2 means all
    if (revk_link_down () && webcontrol >= 2)
-      return revk_web_settings (req);     // Direct to web set up
+      return revk_web_settings (req);   // Direct to web set up
    web_head (req, hostname == revk_id ? appname : hostname);
    httpd_resp_sendstr_chunk (req, "<div id=top class=off><form name=F><table id=live>");
    void addh (const char *tag)
@@ -1215,13 +1216,13 @@ web_root (httpd_req_t * req)
                httpd_resp_sendstr_chunk (req, temp);
             }
          }
-      if (!found && *autob)
-      {
-         httpd_resp_sendstr_chunk (req, "<option selected value=\"");
-         httpd_resp_sendstr_chunk (req, autob);
-         httpd_resp_sendstr_chunk (req, "\">");
-         httpd_resp_sendstr_chunk (req, autob);
-      }
+         if (!found && *autob)
+         {
+            httpd_resp_sendstr_chunk (req, "<option selected value=\"");
+            httpd_resp_sendstr_chunk (req, autob);
+            httpd_resp_sendstr_chunk (req, "\">");
+            httpd_resp_sendstr_chunk (req, autob);
+         }
       if (ble)
          httpd_resp_sendstr_chunk (req, "<option value=->-- Disable BLE --");
       httpd_resp_sendstr_chunk (req, "</select>");
@@ -1249,37 +1250,37 @@ web_root (httpd_req_t * req)
                              "}"
                              "function decode(rt)"
                              "{"
-                                "g('top').className='on';"
-	                             "o=JSON.parse(rt);"
-                                "b('power',o.power);"      //
-                                "h('offline',!o.online);"  //
-                                "h('control',o.control);"  //
-                                "h('slave',o.slave);"      //
-                                "h('remote',!o.remote);"   //
-                                "b('swingh',o.swingh);"    //
-                                "b('swingv',o.swingv);"    //
-                                "b('econo',o.econo);"
-                                "b('powerful',o.powerful);"
-                                "e('mode',o.mode);"        //
-                                "s('Temp',(o.home?o.home+'℃':'---')+(o.env?' / '+o.env+'℃':''));"      //
-                                "n('temp',o.temp);"        //
-                                "s('Ttemp',(o.temp?o.temp+'℃':'---')+(o.control?'✷':''));"     //
-                                "b('autop',o.autop);"      //
-                                "n('autot',o.autot);"      //
-                                "e('autor',o.autor);"      //
-                                "n('autob',o.autob);"      //
-                                "n('auto0',o.auto0);"      //
-                                "n('auto1',o.auto1);"      //
-                                "s('Tautot',(o.autot?o.autot+'℃':''));"  //
-                                "s('Coil',(o.liquid?o.liquid+'℃':'---'));"       //
-                                "s('⏻',(o.slave?'❋':'')+(o.antifreeze?'❄':''));"     //
-                                "s('Fan',(o.fanrpm?o.fanrpm+'RPM':'')+(o.antifreeze?'❄':'')+(o.control?'✷':''));"      //
-                                "e('fan',o.fan);"  //
-                                "if(o.shutdown){"
-                                    "s('shutdown','Restarting: '+o.shutdown);"
-                                    "h('shutdown',true);"
-                                 "} else "
-                                    "h('shutdown',false);"
+                             "g('top').className='on';"
+	                         "o=JSON.parse(rt);"
+                             "b('power',o.power);"      //
+                             "h('offline',!o.online);"  //
+                             "h('loopback',o.loopback);"        //
+                             "h('control',o.control);"  //
+                             "h('slave',o.slave);"      //
+                             "h('remote',!o.remote);"   //
+                             "b('swingh',o.swingh);"    //
+                             "b('swingv',o.swingv);"    //
+                             "b('econo',o.econo);"      //
+                             "b('powerful',o.powerful);"
+                             "e('mode',o.mode);"        //
+                             "s('Temp',(o.home?o.home+'℃':'---')+(o.env?' / '+o.env+'℃':''));"      //
+                             "n('temp',o.temp);"        //
+                             "s('Ttemp',(o.temp?o.temp+'℃':'---')+(o.control?'✷':''));"     //
+                             "b('autop',o.autop);"      //
+                             "n('autot',o.autot);"      //
+                             "e('autor',o.autor);"      //
+                             "n('autob',o.autob);"      //
+                             "n('auto0',o.auto0);"      //
+                             "n('auto1',o.auto1);"      //
+                             "s('Tautot',(o.autot?o.autot+'℃':''));"  //
+                             "s('Coil',(o.liquid?o.liquid+'℃':'---'));"       //
+                             "s('⏻',(o.slave?'❋':'')+(o.antifreeze?'❄':''));"     //
+                             "s('Fan',(o.fanrpm?o.fanrpm+'RPM':'')+(o.antifreeze?'❄':'')+(o.control?'✷':''));"      //
+                             "e('fan',o.fan);"  //
+                             "if(o.shutdown){"
+                                 "s('shutdown','Restarting: '+o.shutdown);"
+                                 "h('shutdown',true);"
+                             "} else h('shutdown',false);"
                              "}"
                              "function c()"
                              "{"    //
@@ -1305,27 +1306,30 @@ web_root (httpd_req_t * req)
    return web_foot (req);
 }
 
-static const char * get_query(httpd_req_t * req, char *buf, size_t buf_len)
+static const char *
+get_query (httpd_req_t * req, char *buf, size_t buf_len)
 {
-   if (httpd_req_get_url_query_len (req) && 
-       !httpd_req_get_url_query_str (req, buf, buf_len))
+   if (httpd_req_get_url_query_len (req) && !httpd_req_get_url_query_str (req, buf, buf_len))
       return NULL;
    else
       return "Required arguments missing";
 }
 
-static void simple_response(httpd_req_t * req, const char * err)
+static void
+simple_response (httpd_req_t * req, const char *err)
 {
    httpd_resp_set_type (req, "text/plain");
 
-   if (err) {
+   if (err)
+   {
       char resp[1000];
 
       // This "ret" value is reported by my BRP on malformed request
       // Error text after 'adv' is my addition; assuming 'advisory'
-      snprintf (resp, sizeof(resp), "ret=PARAM NG,adv=%s", err);
+      snprintf (resp, sizeof (resp), "ret=PARAM NG,adv=%s", err);
       httpd_resp_sendstr (req, resp);
-   } else {
+   } else
+   {
       httpd_resp_sendstr (req, "ret=OK,adv=");
    }
 }
@@ -1393,6 +1397,9 @@ web_control (httpd_req_t * req)
    return ESP_OK;
 }
 
+// The following handlers provide web-based control potocol, compatible
+// with original Daikin BRP series online controllers.
+
 static esp_err_t
 web_get_basic_info (httpd_req_t * req)
 {
@@ -1407,23 +1414,20 @@ web_get_basic_info (httpd_req_t * req)
    // Report something. In fact OpenHAB only uses this URL for discovery,
    // and only checks for ret=OK.
    o += sprintf (o, "ret=OK,type=aircon,reg=eu");
-   o += sprintf (o, ",mac=%02X%02X%02X%02X%02X%02X", revk_mac[0], revk_mac[1], revk_mac[2],
-                                                     revk_mac[3], revk_mac[4], revk_mac[5]);
-   o += sprintf (o, ",ssid1=%s", revk_wifi());
+   o += sprintf (o, ",mac=%02X%02X%02X%02X%02X%02X", revk_mac[0], revk_mac[1], revk_mac[2], revk_mac[3], revk_mac[4], revk_mac[5]);
+   o += sprintf (o, ",ssid1=%s", revk_wifi ());
 
    httpd_resp_sendstr (req, resp);
    return ESP_OK;
 }
 
-// The following handlers provide web-based control protocol, compatible
-// with original Daikin BRP series online controllers.
-
-static char brp_mode()
+static char
+brp_mode ()
 {
-    // Mapped from FHCA456D. Verified against original BRP069A41 controller,
-    // which uses 7 for 'Auto'. This may vary across different controller
-    // versions, see a comment in web_set_control_info()
-    return "64370002"[daikin.mode];
+   // Mapped from FHCA456D. Verified against original BRP069A41 controller,
+   // which uses 7 for 'Auto'. This may vary across different controller
+   // versions, see a comment in web_set_control_info()
+   return "64370002"[daikin.mode];
 }
 
 static esp_err_t
@@ -1447,7 +1451,7 @@ web_get_control_info (httpd_req_t * req)
    o += sprintf (o, "ret=OK");
    o += sprintf (o, ",pow=%d", daikin.power);
    if (daikin.mode <= 7)
-      o += sprintf (o, ",mode=%c", brp_mode());
+      o += sprintf (o, ",mode=%c", brp_mode ());
    o += sprintf (o, ",adv=%s", daikin.powerful ? "2" : "");
    o += sprintf (o, ",stemp=%.1f", daikin.temp);
    o += sprintf (o, ",shum=0");
@@ -1459,7 +1463,7 @@ web_get_control_info (httpd_req_t * req)
          o += sprintf (o, ",dh%d=0", i);
    o += sprintf (o, "dhh=0");
    if (daikin.mode <= 7)
-      o += sprintf (o, ",b_mode=%c", brp_mode());
+      o += sprintf (o, ",b_mode=%c", brp_mode ());
    o += sprintf (o, ",b_stemp=%.1f", daikin.temp);
    o += sprintf (o, ",b_shum=0");
    o += sprintf (o, ",alert=255");
@@ -1484,22 +1488,23 @@ static esp_err_t
 web_set_control_info (httpd_req_t * req)
 {
    char query[1000];
-   const char * err = get_query(req, query, sizeof(query));
+   const char *err = get_query (req, query, sizeof (query));
 
    if (!err)
-   {      
+   {
       char value[10];
 
       if (!httpd_query_key_value (query, "pow", value, sizeof (value)) && *value)
-         daikin_set_v_e(err, power, *value == '1');
-      if (!httpd_query_key_value (query, "mode", value, sizeof (value)) && *value) {
+         daikin_set_v_e (err, power, *value == '1');
+      if (!httpd_query_key_value (query, "mode", value, sizeof (value)) && *value)
+      {
          // Orifinal Faikin-ESP32 code uses 1 for 'Auto` mode
          // OpenHAB uses value of 0
          // My original Daikin BRP069A41 controller reports 7. I tried writing '1' there,
          // it starts replying back with this value, but there's no way to see what
          // the AC does. Probably nothing.
          // Here we promote all three values as 'Auto'. Just in case.
-         static int8_t modes[] = {3, 3, 7, 2, 1, -1, 0, 3}; // AADCH-FA
+         static int8_t modes[] = { 3, 3, 7, 2, 1, -1, 0, 3 };   // AADCH-FA
          int8_t setval = (*value >= '0' && *value <= '7') ? modes[*value - '0'] : -1;
 
          if (setval == -1)
@@ -1509,7 +1514,8 @@ web_set_control_info (httpd_req_t * req)
       }
       if (!httpd_query_key_value (query, "stemp", value, sizeof (value)) && *value)
          daikin_set_t_e (err, temp, strtof (value, NULL));
-      if (!httpd_query_key_value (query, "f_rate", value, sizeof (value)) && *value) {
+      if (!httpd_query_key_value (query, "f_rate", value, sizeof (value)) && *value)
+      {
          int8_t setval;
 
          if (*value == 'A')
@@ -1525,7 +1531,8 @@ web_set_control_info (httpd_req_t * req)
          else
             daikin_set_v_e (err, fan, setval);
       }
-      if (!httpd_query_key_value (query, "f_dir", value, sizeof (value)) && *value) {
+      if (!httpd_query_key_value (query, "f_dir", value, sizeof (value)) && *value)
+      {
          // *value is a bitfield, expressed as a single ASCII digit '0' - '3'
          // Since '0' is 0x30, we don't bother, bit checks work as they should
          daikin_set_v_e (err, swingv, *value & 1);
@@ -1533,7 +1540,7 @@ web_set_control_info (httpd_req_t * req)
       }
    }
 
-   simple_response(req, err);
+   simple_response (req, err);
    return ESP_OK;
 }
 
@@ -1557,8 +1564,8 @@ web_get_sensor_info (httpd_req_t * req)
       o += sprintf (o, "%.2f", daikin.outside);
    else
       *o++ = '-';
-   o += sprintf (o, ",err=0");     // Just for completeness
-   o += sprintf (o, ",cmpfreq=-"); // Compressor frequency, not supported (yet)
+   o += sprintf (o, ",err=0");  // Just for completeness
+   o += sprintf (o, ",cmpfreq=-");      // Compressor frequency, not supported (yet)
 
    httpd_resp_sendstr (req, resp);
    return ESP_OK;
@@ -1619,20 +1626,24 @@ static esp_err_t
 web_set_special_mode (httpd_req_t * req)
 {
    char query[200];
-   const char *err = get_query(req, query, sizeof(query));
+   const char *err = get_query (req, query, sizeof (query));
 
    if (!err)
    {
-      char mode[6], value[2];
+      char mode[6],
+        value[2];
 
       if (!httpd_query_key_value (query, "spmode_kind", mode, sizeof (mode)) &&
           !httpd_query_key_value (query, "set_spmode", value, sizeof (value)))
       {
-         if (!strcmp(mode, "12")) {
+         if (!strcmp (mode, "12"))
+         {
             err = daikin_set_v (econo, *value == '1');
-         } else if (!strcmp(mode, "2")) {
+         } else if (!strcmp (mode, "2"))
+         {
             err = daikin_set_v (powerful, *value == '1');
-         } else {
+         } else
+         {
             err = "Unsupported spmode_kind value";
          }
 
@@ -1644,7 +1655,7 @@ web_set_special_mode (httpd_req_t * req)
       }
    }
 
-   simple_response(req, err);
+   simple_response (req, err);
    return ESP_OK;
 }
 
@@ -1874,15 +1885,18 @@ void uart_setup (void)
    }
 }
 
-static void register_uri(const httpd_uri_t* uri_struct)
+static void
+register_uri (const httpd_uri_t * uri_struct)
 {
    esp_err_t res = httpd_register_uri_handler (webserver, uri_struct);
-   if (res != ESP_OK) {
-       ESP_LOGE (TAG, "Failed to register %s, error code %d", uri_struct->uri, res);
+   if (res != ESP_OK)
+   {
+      ESP_LOGE (TAG, "Failed to register %s, error code %d", uri_struct->uri, res);
    }
 }
 
-static void register_get_uri(const char *uri, esp_err_t (*handler)(httpd_req_t *r))
+static void
+register_get_uri (const char *uri, esp_err_t (*handler) (httpd_req_t * r))
 {
    httpd_uri_t uri_struct = {
       .uri = uri,
@@ -1890,8 +1904,9 @@ static void register_get_uri(const char *uri, esp_err_t (*handler)(httpd_req_t *
       .handler = handler,
    };
 
-   register_uri(&uri_struct);
+   register_uri (&uri_struct);
 }
+
 
 // --------------------------------------------------------------------------------
 // Main
@@ -1962,23 +1977,20 @@ app_main ()
    else
       esp_wifi_set_ps (WIFI_PS_NONE);
 #endif
-
    if (uart == UART_NONE)
    {
       // Mock for interface development and testing
-      daikin.status_known |= CONTROL_power | CONTROL_fan | CONTROL_temp | CONTROL_mode |
-                             CONTROL_econo | CONTROL_powerful;
+      daikin.status_known |= CONTROL_power | CONTROL_fan | CONTROL_temp | CONTROL_mode | CONTROL_econo | CONTROL_powerful;
       daikin.power = 1;
       daikin.mode = 1;
       daikin.temp = 20.0;
    }
 
-   while (1) // Main loop
-   {
+   while (1)
+   {                            // Main loop
       // We're (re)starting comms from scratch, so set "talking" flag.
       // This signals protocol integrity and actually enables communicating with the AC.
       daikin.talking = 1;
-
       if (uart != UART_NONE)
       {
          // Poke UART
@@ -2113,9 +2125,9 @@ app_main ()
                   temp[0] = daikin.power ? '1' : '0';
                   temp[1] = ("64300002"[daikin.mode]);  // FHCA456D mapped to AXDCHXF
                   if (daikin.mode == 1 || daikin.mode == 2 || daikin.mode == 3)
-                     temp[2] = s21_encode_target_temp(daikin.temp);
+                     temp[2] = s21_encode_target_temp (daikin.temp);
                   else
-                     temp[2] = AC_MIN_TEMP_VALUE;     // No temp in other modes
+                     temp[2] = AC_MIN_TEMP_VALUE;       // No temp in other modes
                   temp[3] = ("A34567B"[daikin.fan]);
                   daikin_s21_command ('D', '1', S21_PAYLOAD_LEN, temp);
                   xSemaphoreGive (daikin.mutex);
@@ -2377,9 +2389,10 @@ app_main ()
                         jo_bool (j, "set-power", 0);
                         daikin_set_v (power, 0);        // Turn off as 100% in band for last two period
                      }
-                  } else if ((autop || (daikin.remote && autop10))
-                             && (daikin.counta == daikin.countt || daikin.countb == daikin.countt)
-                             && (current >= max + autop10 / 10.0 || current <= min - autop10 / 10.0))
+                  } else
+                     if ((autop || (daikin.remote && autop10))
+                         && (daikin.counta == daikin.countt || daikin.countb == daikin.countt)
+                         && (current >= max + autop10 / 10.0 || current <= min - autop10 / 10.0))
                   {             // Auto on
                      jo_bool (j, "set-power", 1);
                      daikin_set_v (power, 1);   // Turn on as 100% out of band for last two period
