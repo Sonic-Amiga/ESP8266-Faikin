@@ -105,7 +105,7 @@ static uint8_t s21 = 0;         // Currently using S21 mode
 static uint8_t protocol_set = 0;        // protocol confirmed
 static uint8_t loopback = 0;    // Loopback detected
 #ifdef ELA
-static ela_t *bletemp = NULL;
+static bleenv_t *bletemp = NULL;
 #endif
 
 // The current aircon state and stats
@@ -787,14 +787,7 @@ daikin_control (jo_t j)
       {                         // Stored settings
          if (!s)
             s = jo_object_alloc ();
-         if (!strcmp (val, "+"))
-            jo_bool (s, "ble", 1);      // Enable BLE (reboots)
-         else if (!strcmp (val, "-"))
-         {
-            jo_bool (s, "ble", 0);      // Disable BLE (reboots)
-            jo_string (s, tag, "");
-         } else
-            jo_string (s, tag, val);    // Set BLE value
+         jo_string (s, tag, val);       // Set BLE value
       }
       if (err)
       {                         // Error report
@@ -1186,18 +1179,15 @@ web_root (httpd_req_t * req)
       httpd_resp_sendstr_chunk (req, "<tr>");
       addtime ("On", "auto1");
       addtime ("Off", "auto0");
-      addb ("Auto⏻", "autop");
-      httpd_resp_sendstr_chunk (req, "<tr><td>BLE</td><td colspan=5>");
-      httpd_resp_sendstr_chunk (req, "<select name=autob onchange=\"w('autob',this.options[this.selectedIndex].value);\">");
-      if (!ble)
-         httpd_resp_sendstr_chunk (req, "<option value=\"\">-- Disabled --");
-      else if (!*autob)
-         httpd_resp_sendstr_chunk (req, "<option value=\"\">-- None --");
-      char found = 0;
-      if (!ble)
-         httpd_resp_sendstr_chunk (req, "<option value=+>-- Enable BLE --");
-      else
-         for (ela_t * e = ela; e; e = e->next)
+      addb ("Auto 0/1", "autop");
+      if (ble)
+      {
+         httpd_resp_sendstr_chunk (req, "<tr><td>BLE</td><td colspan=6>");
+         httpd_resp_sendstr_chunk (req, "<select name=autob onchange=\"w('autob',this.options[this.selectedIndex].value);\">");
+         if (!*autob)
+            httpd_resp_sendstr_chunk (req, "<option value=\"\">-- None --");
+         char found = 0;
+         for (bleenv_t * e = bleenv; e; e = e->next)
          {
             httpd_resp_sendstr_chunk (req, "<option value=\"");
             httpd_resp_sendstr_chunk (req, e->name);
@@ -1223,13 +1213,12 @@ web_root (httpd_req_t * req)
             httpd_resp_sendstr_chunk (req, "\">");
             httpd_resp_sendstr_chunk (req, autob);
          }
-      if (ble)
-         httpd_resp_sendstr_chunk (req, "<option value=->-- Disable BLE --");
-      httpd_resp_sendstr_chunk (req, "</select>");
-      if (ble && (uptime () < 60 || !found))
-         httpd_resp_sendstr_chunk (req, " (reload to refresh list)");
-      httpd_resp_sendstr_chunk (req, "</td></tr>");
-      httpd_resp_sendstr_chunk (req, "</table><hr></div>");
+         httpd_resp_sendstr_chunk (req, "</select>");
+         if (ble && (uptime () < 60 || !found))
+            httpd_resp_sendstr_chunk (req, " (reload to refresh list)");
+         httpd_resp_sendstr_chunk (req, "</td></tr>");
+      }
+      httpd_resp_sendstr_chunk (req, "</table></div>");
    }
 #endif
    httpd_resp_sendstr_chunk (req, "</form>");
@@ -1973,7 +1962,7 @@ app_main ()
    }
 #ifdef	ELA
    if (ble)
-      ela_run ();
+      bleenv_run ();
    else
       esp_wifi_set_ps (WIFI_PS_NONE);
 #endif
@@ -2027,12 +2016,12 @@ app_main ()
 #ifdef ELA
          if (ble && *autob)
          {                      // Automatic external temperature logic - only really useful if autor/autot set
-            ela_expire (60);
+            bleenv_expire (60);
             if (!bletemp || strcmp (bletemp->name, autob))
             {
                bletemp = NULL;
-               ela_clean ();
-               for (ela_t * e = ela; e; e = e->next)
+               bleenv_clean ();
+               for (bleenv_t * e = bleenv; e; e = e->next)
                   if (!strcmp (e->name, autob))
                   {
                      bletemp = e;
