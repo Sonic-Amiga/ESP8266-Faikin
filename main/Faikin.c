@@ -923,8 +923,12 @@ mqtt_client_callback (int client, const char *prefix, const char *target, const 
       if (!strcmp (suffix, "temp"))
       {
          if (autor)
-            autot = lroundf (strtof (value, NULL) * 10.0);      // Setting the controls we are using
-         else
+         {                      // Setting the control
+            jo_t s = jo_object_alloc ();
+            jo_int (s, "autot", lroundf (strtof (value, NULL) * 10.0));
+            revk_setting (s);
+            jo_free (&s);
+         } else
             jo_lit (s, "temp", value);  // Direct controls
       }
       // HA stuff
