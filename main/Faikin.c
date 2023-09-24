@@ -845,6 +845,7 @@ daikin_control (jo_t j)
 }
 
 // --------------------------------------------------------------------------------
+char debugsend[10] = "";
 // Called by an MQTT client inside the revk library
 const char *
 mqtt_client_callback (int client, const char *prefix, const char *target, const char *suffix, jo_t j)
@@ -864,6 +865,11 @@ mqtt_client_callback (int client, const char *prefix, const char *target, const 
       daikin.status_report = 1; // Report status on connect
       if (ha)
          daikin.ha_send = 1;
+   }
+   if (!strcmp (suffix, "send") && jo_here (j) == JO_STRING)
+   {
+      jo_strncpy (j, debugsend, sizeof (debugsend));
+      return "";
    }
    if (!strcmp (suffix, "control"))
    {                            // Control, e.g. from environmental monitor
@@ -2200,6 +2206,16 @@ app_main ()
                   poll (R, N, 0,);
                   poll (R, X, 0,);
                   poll (R, D, 0,);
+               }
+               if (*debugsend)
+               {
+                  if (!dump)
+                     dump = 2;  // Debug anyway
+                  if (debugsend[1])
+                     daikin_s21_command (debugsend[0], debugsend[1], strlen (debugsend + 2), debugsend + 2);
+                  *debugsend = 0;
+                  if (dump == 2)
+                     dump = 0;
                }
 #undef poll
                if (debug)
