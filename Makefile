@@ -39,24 +39,10 @@ issue:
 	-git pull
 	-git submodule update --recursive
 	-git commit -a -m checkpoint
-	@make set
+	@make
 	cp --remove-destination Faikin*.bin release
 	git commit -a -m release
 	git push
-
-set:    wroom solo pico
-
-pico:
-	components/ESP32-RevK/setbuildsuffix -S1-PICO
-	@make
-
-wroom:
-	components/ESP32-RevK/setbuildsuffix -S1
-	@make
-
-solo:
-	components/ESP32-RevK/setbuildsuffix -S1-SOLO
-	@make
 
 flash:
 	idf.py flash
