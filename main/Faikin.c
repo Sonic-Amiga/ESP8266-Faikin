@@ -1881,21 +1881,6 @@ int faikin_log_putc(int c) {
    return c;
 }
 
-// !!! GROSS HACK !!!
-// For some strange reason wifi code, which is only available in a prebuilt .a form,
-// uses ets_printf() for its logging. This causes wifi logs to bypass regular
-// filtering and be sent directly to the UART no matter what. From ets_printf.c
-// source code the only legitimate way to stop it is to define
-// CONFIG_ESP_CONSOLE_UART_NONE, which would kill all the logs completely.
-// Fortunately Espressif guys have come accross this problem themselves in a
-// different scenario, so they implemented this internal flag as a stopgap.
-// It's normally manipulated by code in spi_flash.
-// This solution also requires CONFIG_ETS_PRINTF_EXIT_WHEN_FLASH_RW to work.
-#ifndef CONFIG_ETS_PRINTF_EXIT_WHEN_FLASH_RW
-#warning CONFIG_ETS_PRINTF_EXIT_WHEN_FLASH_RW is not set, UART clash is possible!
-#endif
-extern uint8_t FlashIsOnGoing;
-
 void uart_setup (void)
 {
    esp_err_t err = 0;
@@ -1906,15 +1891,19 @@ void uart_setup (void)
          proto = 0;
    }
    ESP_LOGI (TAG, "Trying %s", protoname[proto]);
+   // This makes sure UART is clear and previously emitted log text has reached
+   // its destination
+   // fflush(stdout) doesn't do the job, neither uart_wait_tx_done() is reliable
    sleep (1);
    // Shut off console log if it is using our UART
    if (uart == CONFIG_ESP_CONSOLE_UART_NUM) {
-      FlashIsOnGoing = 1;
-      // Wait for previously emitted log text to reach its destination
-      // fflush(stdout) doesn't do the job
-      uart_wait_tx_done(uart, 1000 / portTICK_PERIOD_MS);
-      // Only after this we switch the output, otherwise we lose the final line.
-      // Apparently stdout does tons of buffering together with the UART driver
+      // This requires https://github.com/espressif/ESP8266_RTOS_SDK/pull/1253
+      // See description and linked issue for details
+      // This also requires CONFIG_USING_NEW_ETS_VPRINTF to work
+#ifndef CONFIG_USING_NEW_ETS_VPRINTF
+#warning CONFIG_USING_NEW_ETS_VPRINTF is not set, UART clash is possible!
+#endif
+      __ets_vprintf_disable = 1;
       esp_log_set_putchar(faikin_log_putc);
    }
    uart_config_t uart_config = {
