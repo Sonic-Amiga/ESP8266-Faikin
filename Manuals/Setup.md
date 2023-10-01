@@ -52,11 +52,11 @@ Enter details and press **Set**. Setting a *Hostname* is a good idea so you can 
 
 ### Hostname
 
-Pick a simple one work hostname to describe your air-con, e.g. GuestAC.
+Pick a simple one word hostname to describe your air-con, e.g. GuestAC.
 
 ### SSID/Password
 
-Enter the details for your own WiFi. You will note a list of SSIDs that have been seen are shown - you can click on one to set the SSID to save typing it. Make sure you enter the passphrase carefully. If the device is unable to connect the page should show an error and allow you to put in settings again. Only 2.4GHz WiFi is supported, and some special characters in SSID may not be supported.
+Enter the details for your own WiFi. Make sure you enter the passphrase carefully. If the device is unable to connect the page should show an error and allow you to put in settings again. Only 2.4GHz WiFi is supported, and some special characters in SSID may not be supported.
 
 ### MQTT
 
@@ -68,10 +68,9 @@ In addition you will usually see the option for an MQTT *username* and *password
 
 One set up, the device connects to your WIFi. From the same WiFi you should be able to access from a web browser using the hostanme you have picked followed by `.local`, e.g. `GuestAC.local`.
 
-The controls page shows teh controls for your air-con, and also has a link for *WiFi settings* allowing you to change the WiFi and MQTT settings if needed.
+The controls page shows teh controls for your air-con, and also has a link for *Settings* allowing you to change the WiFi and MQTT settings if needed.
 
 # Software Upgrade
 
-We recommend you upgrade the software when you receive the device, as new features are often added.
-
-Go to the web page, and select *WiFi settings*. You can click on *Upgrade*. This does need internet access.
+Go to the web page, and select *Settings*. You can click on *Upgrade firmware*. This does need internet access. You will see a progress display
+and then resulting status.
