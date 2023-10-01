@@ -43,6 +43,20 @@ This project is being developed and tested on FTXF20D "Sensira". There's also a 
 models on [Original Faikin-ESP32 wiki](https://github.com/revk/ESP32-Faikin/wiki/List-of-confirmed-working-air-con-units);
 those are also expected to work.
 
+# Installing
+
+It is possible to build the firmware from source, but for those who don't know how to do it,
+prebuilt binaries are available in release/ folder of the repository.
+
+Faikin is built using ESP8266_RTOS_SDK, and installation requires to replace bootloader and
+partition table. This is done by flashing all the files using esptool:
+
+esptool.py -p COM3 -b 460800 --after hard_reset write_flash --flash_mode dio --flash_freq 40m --flash_size 8MB 0x8000 partition-table.bin 0xd000 ota_data_initial.bin 0x0 bootloader.bin 0x10000 Faikin-8266.bin
+
+It is enough to do this only once; after you have the proper bootloader, you only need to replace the application (Faikin-8266.bin)
+
+If you built from source, the same result is achieved by simply running "make flash".
+
 # Set-up
 
 Appears as access point with simple web page to set up on local WiFI
