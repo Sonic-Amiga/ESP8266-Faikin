@@ -23,6 +23,11 @@ static const char TAG[] = "Faikin";
 #define	daikin_set_t(name,value)	daikin_set_temp(#name,&daikin.name,CONTROL_##name,value)
 
 // Settings (RevK library used by MQTT setting command)
+
+// ESP8266: A single on-module LED on GPIO #2 inverted
+#define	gpio			\
+	led(blink,1,-2)
+
 #define	settings		\
 	u8(webcontrol,2)	\
 	u8(protocol,0)		\
@@ -54,7 +59,8 @@ static const char TAG[] = "Faikin";
 	u32(tsample,900)	\
 	u32(tcontrol,600)	\
 	u8(fanstep,0)		\
-	u32(reporting,60)
+	u32(reporting,60)	\
+	gpio			\
 
 #define UART_NONE 0xFF
 
@@ -68,8 +74,14 @@ static const char TAG[] = "Faikin";
 #define s(n) char * n;
 #define sl(n) char * n;
 #define io(n,d)           uint8_t n;
+#ifdef  CONFIG_REVK_BLINK
+#define led(n,a,d)      extern uint8_t n[a];
+#else
+#define led(n,a,d)      uint8_t n[a];
+#endif
 settings
 #undef io
+#undef led
 #undef u32
 #undef s8
 #undef u8
@@ -341,7 +353,7 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
             set_val (mode, "30721003"[payload[1] & 0x7] - '0');    // FHCA456D mapped from AXDCHXF
             set_val (heat, daikin.mode == 1);      // Crude - TODO find if anything actually tells us this
             if (daikin.mode == 1 || daikin.mode == 2 || daikin.mode == 3)
-               set_temp (temp, s21_decode_target_temp(payload[2]));
+               set_temp (temp, s21_decode_target_temp (payload[2]));
             else if (!isnan (daikin.temp))
                set_temp (temp, daikin.temp);       // Does not have temp in other modes
             if (payload[3] != 'A') // Set fan speed
@@ -2004,6 +2016,11 @@ app_main ()
    revk_boot (&mqtt_client_callback);
 #define str(x) #x
 #define io(n,d)           revk_register(#n,0,sizeof(n),&n,"- "str(d),SETTING_SET|SETTING_BITFIELD);
+#ifndef CONFIG_REVK_BLINK
+#define led(n,a,d)      revk_register(#n,a,sizeof(*n),&n,"- "str(d),SETTING_SET|SETTING_BITFIELD|SETTING_FIX);
+#else
+#define	led(n,a,d)
+#endif
 #define b(n,d) revk_register(#n,0,sizeof(n),&n,str(d),SETTING_BOOLEAN);
 #define bl(n) revk_register(#n,0,sizeof(n),&n,NULL,SETTING_BOOLEAN|SETTING_LIVE);
 #define u32(n,d) revk_register(#n,0,sizeof(n),&n,str(d),0);
@@ -2014,6 +2031,7 @@ app_main ()
 #define s(n) revk_register(#n,0,0,&n,NULL,0);
 #define sl(n) revk_register(#n,0,0,&n,NULL,SETTING_LIVE);
    settings
+#undef led
 #undef io
 #undef u32
 #undef s8
