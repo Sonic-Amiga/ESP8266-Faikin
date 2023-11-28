@@ -92,7 +92,7 @@ static void queueDigit(uint8_t v) {
   }
 }
 
-static void send() {
+static void send(const uint8_t* data, int len) {
   digitalWrite(TX_PIN, 0);
   delayMicroseconds(2500); // SYNC low
   digitalWrite(TX_PIN, 1);
@@ -100,9 +100,9 @@ static void send() {
   digitalWrite(TX_PIN, 0);
   delayMicroseconds(300);  // Space low
 
-  for (int i = 0; i < tx_bytes; i++) {
+  for (int i = 0; i < len; i++) {
     for (int b = 0; b < 8; b++) {
-      uint8_t v = tx_buffer[i] & (1 << b);
+      uint8_t v = data[i] & (1 << b);
       digitalWrite(TX_PIN, 1);
       delayMicroseconds(v ? 1000 : 400); // Bit high
       digitalWrite(TX_PIN, 0);
@@ -140,7 +140,6 @@ void loop() {
   if (isDataReady()) {
     Serial.print("Rx ");
     dump(rx_buffer, RX_LEN);
-    send();
     resetRx();
   }
   if (Serial.available() > 0) {
@@ -149,7 +148,7 @@ void loop() {
       if (tx_bytes > 0) {
         Serial.print("Tx ");
         dump(tx_buffer, tx_bytes);
-        send();
+        send(tx_buffer, tx_bytes);
         resetTx();
       }
     } else if (isxdigit(c)) {
