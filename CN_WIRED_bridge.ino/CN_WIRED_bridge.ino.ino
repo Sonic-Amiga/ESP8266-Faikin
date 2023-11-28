@@ -120,7 +120,19 @@ static void send(const uint8_t* data, int len) {
 }
 
 static Receiver rx1(RX1_PIN);
+
+// Our interrupt handlers don't get any arguments, so we have to provide these bridges
+static void rx1PinInt() {
+  rx1.onInterrupt();
+}
+
+#ifdef RX2_PIN
 static Receiver rx2(RX2_PIN);
+
+static void rx2PinInt() {
+  rx2.onInterrupt();
+}
+#endif
 
 // TX buffer, where we read data from the serial port
 static uint8_t tx_buffer[PKT_LEN + 1];
@@ -143,17 +155,6 @@ static void queueDigit(uint8_t v) {
     tx_bytes++;
   }
 }
-
-// Our interrupt handlers don't get any arguments, so we have to provide these bridges
-static void rx1PinInt() {
-  rx1.onInterrupt();
-}
-
-#ifdef RX2_PIN
-static void rx2PinInt() {
-  rx2.onInterrupt();
-}
-#endif
 
 void setup() {
   Serial.begin(115200);
