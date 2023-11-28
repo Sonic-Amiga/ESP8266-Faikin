@@ -3,7 +3,10 @@
 #define RX2_PIN 3 // PD2
 #define TX_PIN  4 // PD4
 
-#define PKT_LEN 8
+// Raw payload length
+#define PAYLOAD_LEN 7
+// A complete packet is payload plus CRC byte
+#define PKT_LEN PAYLOAD_LEN + 1
 // Our RX buffers are prefixed by one byte, where start bit is stored.
 // See start()
 #define RX_LEN  PKT_LEN + 1
@@ -32,6 +35,11 @@ class Receiver {
 
     const uint8_t* getBuffer() const {
       return buffer;
+    }
+
+    // 0th byte contains start bit
+    const uint8_t* getData() const {
+      return &buffer[1];
     }
 
     void onInterrupt();
@@ -134,25 +142,66 @@ static void rx2PinInt() {
 }
 #endif
 
-// TX buffer, where we read data from the serial port
-static uint8_t tx_buffer[PKT_LEN + 1];
+static uint8_t calcCRC(const uint8_t* data, int len) {
+  uint8_t crc = 0;
+
+  // 4-bit sum of all nibbles
+  for (int i = 0; i < len; i++) {
+    crc += (data[i] >> 4) + (data[i] & 0x0F);
+  }
+
+  // The received packet contains the CRC in high nibble
+  return crc << 4;
+}
+
+/*** Serial terminal stuff begins here ***/
+
+// TX buffer, where we collect data from the serial port
+static uint8_t tx_buffer[PKT_LEN];
 static int tx_bytes;
 static int tx_bits;
 
 static void resetTx() {
-  tx_bytes = 0;
-  tx_bits  = 4;
-  memset(tx_buffer, 0, PKT_LEN);
+  tx_bytes     = 0;
+  tx_bits      = 4;
+  tx_buffer[0] = 0;
 }
 
 static void queueDigit(uint8_t v) {
-  if (tx_bytes == PKT_LEN) {
-    return;
+  if (tx_bytes == PAYLOAD_LEN) {
+    return; // Simple overflow prevention
   }
   tx_buffer[tx_bytes] |= (v << tx_bits);
   tx_bits ^= 4;
   if (tx_bits) {
     tx_bytes++;
+    tx_buffer[tx_bytes] = 0;
+  }
+}
+
+static void dump(const char* prefix, const uint8_t* buffer, int len) {
+  Serial.print(prefix);
+
+  for (int i = 0; i < len; i++) {
+    Serial.print(' ');
+    if (buffer[i] < 0x10)
+      Serial.print('0');
+    Serial.print(buffer[i], HEX);
+  }
+}
+
+static void dump(const char* prefix, const Receiver& rx) {
+  // Dump the whole thing, including start bit and CRC
+  dump(prefix, rx.getBuffer(), RX_LEN);
+
+  const uint8_t* payload = rx.getData();
+  uint8_t crc = calcCRC(payload, PAYLOAD_LEN);
+
+  if (crc == payload[PAYLOAD_LEN]) {
+    Serial.println(" OK");
+  } else {
+    Serial.print(" BAD ");
+    Serial.println(crc, HEX);
   }
 }
 
@@ -169,38 +218,31 @@ void setup() {
   digitalWrite(TX_PIN, 1);
 }
 
-static void dump(const uint8_t* buffer, int len) {
-  for (int i = 0; i < len; i++) {
-    if (buffer[i] < 0x10)
-      Serial.print('0');
-    Serial.print(buffer[i], HEX);
-    Serial.print(' ');
-  }
-  Serial.println("");
-}
-
 void loop() {
   if (rx1.isDataReady()) {
-    Serial.print("Rx1 ");
-    dump(rx1.getBuffer(), RX_LEN);
+    dump("Rx1", rx1);
     rx1.reset();
   }
 #ifdef RX2_PIN
   if (rx2.isDataReady()) {
-    Serial.print("Rx2 ");
-    dump(rx2.getBuffer(), RX_LEN);
+    dump("Rx2", rx2);
     rx2.reset();
   }
 #endif
   if (Serial.available() > 0) {
     int c = Serial.read();
     if (c == '\n' || c == '\r') {
-      if (tx_bytes > 0) {
-        Serial.print("Tx ");
-        dump(tx_buffer, tx_bytes);
-        send(tx_buffer, tx_bytes);
-        resetTx();
+      if (tx_bytes == PAYLOAD_LEN) {
+        // Only send complete packets
+        tx_buffer[PAYLOAD_LEN] = calcCRC(tx_buffer, PAYLOAD_LEN);
+        dump("Tx", tx_buffer, PKT_LEN);
+        Serial.println("");
+        send(tx_buffer, PKT_LEN);
+      } else {
+        Serial.print("Bad length: ");
+        Serial.println(tx_bytes);
       }
+      resetTx();
     } else if (isxdigit(c)) {
       uint8_t v = (c < 'A') ? c - '0' : tolower(c) - 'A' + 10;
       queueDigit(v);
