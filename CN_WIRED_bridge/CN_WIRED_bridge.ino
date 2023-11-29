@@ -42,6 +42,10 @@ class Receiver {
       return &buffer[1];
     }
 
+    unsigned long getTimestamp() const {
+      return last_rx;
+    }
+
     void onInterrupt();
 
   private:
@@ -74,6 +78,7 @@ class Receiver {
     unsigned int  state;       // Current line state
     int           rx_bytes;    // Bytes counter
     int           rx_bits;     // Bits counter
+    unsigned long last_rx;     // Timestamp of the received packet
     const int     pin;
 };
 
@@ -89,7 +94,9 @@ void Receiver::onInterrupt() {
   if (new_state) {
     // LOW->HIGH, start of data bit
     if (now - pulse_start > 2000) {
-      start(); // Got SYNC pulse, start receiving data
+      // Got SYNC pulse, start receiving data
+      last_rx = pulse_start;
+      start();
     }
   } else {
     // HIGH->LOW, start of SYNC or end of data bit
@@ -199,6 +206,10 @@ static void dump(const char* prefix, const uint8_t* buffer, int len) {
 }
 
 static void dump(const char* prefix, const Receiver& rx) {
+  char buffer[16];
+
+  sprintf(buffer, "%010lu ", rx.getTimestamp());
+  Serial.print(buffer);
   // Dump the whole thing, including start bit and CRC
   dump(prefix, rx.getBuffer(), RX_LEN);
 
