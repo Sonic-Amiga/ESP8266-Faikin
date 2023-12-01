@@ -1,6 +1,6 @@
 // Pins we're using. RX2 is optional, can be commented out if not used
-#define RX1_PIN 2 // PD3
-#define RX2_PIN 3 // PD2
+#define RX1_PIN 2 // PD2
+#define RX2_PIN 3 // PD3
 #define TX_PIN  4 // PD4
 
 // Data packet length
@@ -101,7 +101,7 @@ void Receiver::onInterrupt() {
   } else {
     // HIGH->LOW, start of SYNC or end of data bit
     if (isReceiving()) {
-      // High bit - 1000us, low bit - 400us
+      // High bit - 900us, low bit - 400us
       uint8_t bit = (now - pulse_start) > 700;
       receiveBit(bit);
     }
@@ -112,26 +112,58 @@ void Receiver::onInterrupt() {
   state       = new_state;
 }
 
+#define SEND_BIT(byte, bit)                                \
+{                                                          \
+  unsigned int bit_time = (byte & (1 << bit)) ? 900 : 400; \
+  *out = high;                                             \
+  delayMicroseconds(bit_time);                             \
+  *out = low;                                              \
+  delayMicroseconds(300);                                  \
+}
+
+#define SEND_BYTE(data, offset) \
+{                               \
+  uint8_t byte = data[offset];  \
+  SEND_BIT(byte, 0)             \
+  SEND_BIT(byte, 1)             \
+  SEND_BIT(byte, 2)             \
+  SEND_BIT(byte, 3)             \
+  SEND_BIT(byte, 4)             \
+  SEND_BIT(byte, 5)             \
+  SEND_BIT(byte, 6)             \
+  SEND_BIT(byte, 7)             \
+}
+
 // A very simple self-explanatory data send routine
-static void send(const uint8_t* data, int len) {
-  digitalWrite(TX_PIN, 0);
+static void send(const uint8_t* data) {
+  uint8_t bit  = digitalPinToBitMask(TX_PIN);
+  uint8_t port = digitalPinToPort(TX_PIN);
+  volatile uint8_t *out = portOutputRegister(port);
+  uint8_t high = *out | bit;
+  uint8_t low = high & ~bit;
+	uint8_t oldSREG = SREG;
+
+  // Comment out this cli() in order to enable loopback testing
+  cli();
+
+  *out = low;
   delayMicroseconds(2600); // SYNC low
-  digitalWrite(TX_PIN, 1);
-  delayMicroseconds(1000); // 1 high
-  digitalWrite(TX_PIN, 0);
+  *out = high;
+  delayMicroseconds(1000); // Start bit high
+  *out = low;
   delayMicroseconds(300);  // Space low
+  // Extremely unrolled for better precision
+  SEND_BYTE(data, 0)
+  SEND_BYTE(data, 1)
+  SEND_BYTE(data, 2)
+  SEND_BYTE(data, 3)
+  SEND_BYTE(data, 4)
+  SEND_BYTE(data, 5)
+  SEND_BYTE(data, 6)
+  SEND_BYTE(data, 7)
 
-  for (int i = 0; i < len; i++) {
-    for (int b = 0; b < 8; b++) {
-      uint8_t v = data[i] & (1 << b);
-      digitalWrite(TX_PIN, 1);
-      delayMicroseconds(v ? 900 : 400); // Bit high
-      digitalWrite(TX_PIN, 0);
-      delayMicroseconds(300); // Space low
-    }
-  }
-
-  digitalWrite(TX_PIN, 1); // Idle high
+  *out = high; // Idle high
+  SREG = oldSREG; // Restore interrupts
 }
 
 static Receiver rx1(RX1_PIN);
@@ -256,7 +288,7 @@ void loop() {
         setCRC(tx_buffer);
         dump("Tx", tx_buffer, PKT_LEN);
         Serial.println("");
-        send(tx_buffer, PKT_LEN);
+        send(tx_buffer);
       } else {
         Serial.print("Bad length: ");
         Serial.println(tx_bytes);
