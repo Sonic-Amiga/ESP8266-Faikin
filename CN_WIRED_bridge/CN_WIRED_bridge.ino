@@ -263,7 +263,7 @@ void loop() {
       }
       resetTx();
     } else if (isxdigit(c)) {
-      uint8_t v = (c < 'A') ? c - '0' : tolower(c) - 'A' + 10;
+      uint8_t v = (c < 'A') ? c - '0' : toupper(c) - 'A' + 10;
       queueDigit(v);
     }
   }
