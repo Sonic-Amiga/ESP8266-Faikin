@@ -115,7 +115,7 @@ void Receiver::onInterrupt() {
 // A very simple self-explanatory data send routine
 static void send(const uint8_t* data, int len) {
   digitalWrite(TX_PIN, 0);
-  delayMicroseconds(2500); // SYNC low
+  delayMicroseconds(2600); // SYNC low
   digitalWrite(TX_PIN, 1);
   delayMicroseconds(1000); // 1 high
   digitalWrite(TX_PIN, 0);
@@ -125,7 +125,7 @@ static void send(const uint8_t* data, int len) {
     for (int b = 0; b < 8; b++) {
       uint8_t v = data[i] & (1 << b);
       digitalWrite(TX_PIN, 1);
-      delayMicroseconds(v ? 1000 : 400); // Bit high
+      delayMicroseconds(v ? 900 : 400); // Bit high
       digitalWrite(TX_PIN, 0);
       delayMicroseconds(300); // Space low
     }
