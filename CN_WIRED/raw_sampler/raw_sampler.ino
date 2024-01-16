@@ -1,7 +1,7 @@
 // Pins we're using. RX2 is optional, can be commented out if not used
 #define RX1_PIN 2 // PD2
 
-#define NUM_SAMPLES 131
+#define NUM_SAMPLES (131 * 2 + 1)
 
 struct Sample {
   int           state;
@@ -58,7 +58,7 @@ void Receiver::onInterrupt() {
   unsigned long now = micros();
   unsigned long duration = now - pulse_start;
 
-  if (new_state && duration > 2000) {
+  if (new_state && duration > 2000 && samples == -1) {
     // Got SYNC pulse, start receiving data
     start();
   }
