@@ -202,6 +202,46 @@ static void setCRC(uint8_t* data) {
   data[CRC_OFFSET] = calcCRC(data);
 }
 
+#define TERM_BUFFER_SIZE 10
+
+class SerialTextInput {
+ public:
+    const char *getBuffer() const {
+      return buffer;
+    }
+
+    void reset() {
+      rx_bytes = 0;
+    }
+
+    bool lineReady();
+
+ private:
+    char buffer[TERM_BUFFER_SIZE + 1];
+    int  rx_bytes = 0;
+};
+
+bool SerialTextInput::lineReady() {
+  if (Serial.available() > 0) {
+    int c = Serial.read();
+
+    if (c == '\r') {
+      Serial.println();
+      if (rx_bytes) {
+        buffer[rx_bytes] = 0;
+        rx_bytes = TERM_BUFFER_SIZE; // Prevent further read till reset
+        return true;
+      }
+    } else if (rx_bytes < TERM_BUFFER_SIZE) {
+      buffer[rx_bytes++] = c;
+      Serial.write(c); // Echo
+    }        
+  }
+  return false;
+}
+
+SerialTextInput term;
+
 static void dump(const char* prefix, const uint8_t* buffer, int len) {
   Serial.print(prefix);
 
@@ -228,8 +268,13 @@ static void dump(const char* prefix, const Receiver& rx) {
   }
 }
 
+static void setIndoorsTemp(uint8_t indoors_temp) {
+  temp_response[0] = indoors_temp; // BCD
+  setCRC(temp_response);
+}
+
 void setup() {
-  temp_response[0] = 0x22;
+  temp_response[0] = 0x20;
   temp_response[1] = 0x04;
   temp_response[2] = 0x50;
   temp_response[3] = 0x00;
@@ -247,12 +292,57 @@ void setup() {
   digitalWrite(TX_PIN, 1);
 }
 
+static void help() {
+  Serial.println("? - this help");
+  Serial.println("T <decimal> - Set indoors temperature in C");
+}
+
+#define BAD_BCD 0xFF
+
+static uint8_t get_bcd(const char *text) {
+  if (text[0] == 0) {
+    return BAD_BCD;
+  }
+  if (!isdigit(text[0])) {
+    return BAD_BCD;
+  }
+  uint8_t d1 = text[0] - '0';
+  if (text[1] != 0) {
+    if (!isdigit(text[1])) {
+      return BAD_BCD;
+    }
+    uint8_t d2 = isdigit(text[1]) ? text[1] - '0' : BAD_BCD;
+    return (d1 << 4) | d2;
+  }
+  return d1;
+}
+
 void loop() {
   if (rx1.isDataReady()) {
     dump("Rx1", rx1);
     rx1.reset();
     delayMicroseconds(1000);
     send(temp_response);
+  }
+  if (term.lineReady()) {
+    const char *user_cmd = term.getBuffer();
+
+    if (user_cmd[0] == '?') {
+      help();
+    } else if (user_cmd[0] == 'T') {
+      uint8_t indoors = get_bcd(user_cmd + 1);
+
+      if (indoors != BAD_BCD) {
+        setIndoorsTemp(indoors);
+      } else {
+        Serial.println("Bad value");
+      }
+    } else {
+      Serial.print("Bad command: ");
+      Serial.println(user_cmd);
+    }
+
+    term.reset();
   }
   yield();
 }
