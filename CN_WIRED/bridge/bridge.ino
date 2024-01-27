@@ -1,6 +1,6 @@
 // Pins we're using. RX2 is optional, can be commented out if not used
 #define RX1_PIN 2 // PD2
-#define RX2_PIN 3 // PD3
+//#define RX2_PIN 3 // PD3
 #define TX_PIN  4 // PD4
 
 // Data packet length
@@ -11,11 +11,23 @@
 // See start()
 #define RX_LEN PKT_LEN + 1
 
+// Pulse lengths in microseconds
+#define SYNC_LENGTH  2600
+#define START_LENGTH 1000
+#define SPACE_LENGTH 300
+#define BIT_1_LENGTH 900
+#define BIT_0_LENGTH 400
+#define ACK_LENGTH   2000
+// Detection tolerance
+#define THRESHOLD 200
+
 class Receiver {
   public:
     Receiver(int pin) : pin(pin) {}
 
     void begin(void(*handler)()) {
+      reset();
+      ack = false;
       state = 1;
       pinMode(pin, INPUT);
       attachInterrupt(digitalPinToInterrupt(pin), handler, CHANGE);
@@ -42,8 +54,18 @@ class Receiver {
       return &buffer[1];
     }
 
-    unsigned long getTimestamp() const {
+    unsigned long getRxTimestamp() const {
       return last_rx;
+    }
+
+    bool getAck(unsigned long &timestamp) {
+      if (ack) {
+        timestamp = last_ack;
+        ack = false;
+        return true;
+      } else {
+        return false;
+      }
     }
 
     void onInterrupt();
@@ -78,7 +100,9 @@ class Receiver {
     unsigned int  state;       // Current line state
     int           rx_bytes;    // Bytes counter
     int           rx_bits;     // Bits counter
+    volatile bool ack;
     unsigned long last_rx;     // Timestamp of the received packet
+    unsigned long last_ack;    // Timestamp of the last ACK pulse
     const int     pin;
 };
 
@@ -93,10 +117,18 @@ void Receiver::onInterrupt() {
 
   if (new_state) {
     // LOW->HIGH, start of data bit
-    if (now - pulse_start > 2000) {
+    unsigned long length = now - pulse_start;
+
+    if (length > SYNC_LENGTH - THRESHOLD) {
       // Got SYNC pulse, start receiving data
       last_rx = pulse_start;
       start();
+    } else if (length > ACK_LENGTH - THRESHOLD) {
+      // Got ACK pulse
+      if (!ack) {
+          last_ack = pulse_start;
+          ack = true;
+      }
     }
   } else {
     // HIGH->LOW, start of SYNC or end of data bit
@@ -112,13 +144,13 @@ void Receiver::onInterrupt() {
   state       = new_state;
 }
 
-#define SEND_BIT(byte, bit)                                \
-{                                                          \
-  unsigned int bit_time = (byte & (1 << bit)) ? 900 : 400; \
-  *out = high;                                             \
-  delayMicroseconds(bit_time);                             \
-  *out = low;                                              \
-  delayMicroseconds(300);                                  \
+#define SEND_BIT(byte, bit)                                                  \
+{                                                                            \
+  unsigned int bit_time = (byte & (1 << bit)) ? BIT_1_LENGTH : BIT_0_LENGTH; \
+  *out = high;                                                               \
+  delayMicroseconds(bit_time);                                               \
+  *out = low;                                                                \
+  delayMicroseconds(SPACE_LENGTH);                                           \
 }
 
 #define SEND_BYTE(data, offset) \
@@ -144,14 +176,14 @@ static void send(const uint8_t* data) {
 	uint8_t oldSREG = SREG;
 
   // Comment out this cli() in order to enable loopback testing
-  cli();
+//  cli();
 
   *out = low;
-  delayMicroseconds(2600); // SYNC low
+  delayMicroseconds(SYNC_LENGTH); // SYNC low
   *out = high;
-  delayMicroseconds(1000); // Start bit high
+  delayMicroseconds(START_LENGTH); // Start bit high
   *out = low;
-  delayMicroseconds(300);  // Space low
+  delayMicroseconds(SPACE_LENGTH); // Space low
   // Extremely unrolled for better precision
   SEND_BYTE(data, 0)
   SEND_BYTE(data, 1)
@@ -161,8 +193,12 @@ static void send(const uint8_t* data) {
   SEND_BYTE(data, 5)
   SEND_BYTE(data, 6)
   SEND_BYTE(data, 7)
-
   *out = high; // Idle high
+  delayMicroseconds(16000);
+  *out = low;
+  delayMicroseconds(ACK_LENGTH); // ACK low
+  *out = high; // Idle high
+
   SREG = oldSREG; // Restore interrupts
 }
 
@@ -237,11 +273,15 @@ static void dump(const char* prefix, const uint8_t* buffer, int len) {
   }
 }
 
-static void dump(const char* prefix, const Receiver& rx) {
+static void printTimestamp(unsigned long ts) {
   char buffer[16];
 
-  sprintf(buffer, "%010lu ", rx.getTimestamp());
+  sprintf(buffer, "%010lu ", ts);
   Serial.print(buffer);
+}
+
+static void dump(const char* prefix, const Receiver& rx) {
+  printTimestamp(rx.getRxTimestamp());
   // Dump the whole thing, including start bit and CRC
   dump(prefix, rx.getBuffer(), RX_LEN);
 
@@ -270,11 +310,21 @@ void setup() {
 }
 
 void loop() {
+  unsigned long ack_ts;
+
+  if (rx1.getAck(ack_ts)) {
+    printTimestamp(ack_ts);
+    Serial.println("Rx1 ACK");
+  }
   if (rx1.isDataReady()) {
     dump("Rx1", rx1);
     rx1.reset();
   }
 #ifdef RX2_PIN
+  if (rx2.getAck(ack_ts)) {
+    printTimestamp(ack_ts);
+    Serial.println("Rx2 ACK");
+  }
   if (rx2.isDataReady()) {
     dump("Rx2", rx2);
     rx2.reset();
