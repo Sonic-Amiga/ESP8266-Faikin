@@ -38,6 +38,8 @@ private slots:
 
     void on_vSwing_stateChanged(int arg1);
 
+    void on_dumpAllPackets_stateChanged(int arg1);
+
 private:
     void setCommRunning(bool running);
     uint8_t getMode() const;

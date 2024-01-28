@@ -27,12 +27,11 @@ class Dump {
 };
 
 // Temporary, to be set from UI
-bool dump_all_packets = true;
-bool dump_all_modes   = true;
+static bool dump_all_packets;
 
 // Buffer to read incoming serial data
-char rx_buffer[50];
-uint8_t rx_bytes = 0;
+static char rx_buffer[50];
+static uint8_t rx_bytes = 0;
 
 struct ACState
 {
@@ -99,12 +98,7 @@ static std::ostream& operator<<(std::ostream& s, const ACState& state)
     return s;
 }
 
-static ACState current_state = {
-    .setpoint = 23,
-    .poweroff = true,
-    .mode     = CNW_COOL,
-    .fan      = CNW_FAN_1
-};
+static ACState current_state;
 
 QString openSerial(QSerialPort* serial, const QString& port)
 {
@@ -118,10 +112,7 @@ QString openSerial(QSerialPort* serial, const QString& port)
     rx_bytes = 0;
 
     if (!serial->open(QIODevice::ReadWrite)) {
-        QString error = serial->errorString();
-
-        std::cout << "Open failed: " << error << std::endl;
-        return error;
+        return serial->errorString();
     }
 
     return QString();
@@ -364,4 +355,9 @@ void setVSwing(bool on, QSerialPort* serial)
 
     current_state.v_swing = on;
     sendStatePacket(serial);
+}
+
+void setDumpAllPackets(bool on)
+{
+    dump_all_packets = on;
 }

@@ -16,6 +16,7 @@ MainWindow::MainWindow(QWidget *parent)
     g_main = this;
 
     // Set initial values from the UI
+    setDumpAllPackets(ui->dumpAllPackets->isChecked());
     setPower(ui->powerState->isChecked(), nullptr);
     setPoint(ui->setPoint->value(), nullptr);
     setMode(getMode(), nullptr);
@@ -195,3 +196,9 @@ void MainWindow::on_vSwing_stateChanged(int arg1)
 {
     setVSwing(arg1 == Qt::Checked, serial);
 }
+
+void MainWindow::on_dumpAllPackets_stateChanged(int arg1)
+{
+    setDumpAllPackets(arg1 == Qt::Checked);
+}
+
