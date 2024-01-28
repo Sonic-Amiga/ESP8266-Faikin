@@ -49,6 +49,9 @@
       <layout class="QGridLayout" name="gridLayout">
        <item row="0" column="0">
         <widget class="QCheckBox" name="powerState">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
          <property name="text">
           <string>Power</string>
          </property>
@@ -68,6 +71,9 @@
          </item>
          <item>
           <widget class="QSpinBox" name="currentTemp">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
            <property name="keyboardTracking">
             <bool>false</bool>
            </property>
@@ -89,6 +95,9 @@
          </item>
          <item>
           <widget class="QSpinBox" name="setPoint">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
            <property name="keyboardTracking">
             <bool>false</bool>
            </property>
@@ -110,6 +119,9 @@
          </item>
          <item>
           <widget class="QComboBox" name="modeSelector">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
            <item>
             <property name="text">
              <string>Cool</string>
@@ -150,6 +162,9 @@
          </item>
          <item>
           <widget class="QComboBox" name="fanSelector">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
            <item>
             <property name="text">
              <string>Eco</string>
@@ -186,6 +201,9 @@
        </item>
        <item row="5" column="0">
         <widget class="QCheckBox" name="vSwing">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
          <property name="text">
           <string>Vertical swing</string>
          </property>

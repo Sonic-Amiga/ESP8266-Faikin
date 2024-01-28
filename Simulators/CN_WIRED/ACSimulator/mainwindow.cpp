@@ -33,19 +33,34 @@ void MainWindow::on_commButton_clicked()
     if (comm_running) {
         closeSerial(serial);
         ui->commButton->setText("Connect");
-        ui->portName->setDisabled(false);
-        comm_running = false;
+        setCommRunning(false);
+        ui->statusBar->clearMessage();
     } else {
         QString err = openSerial(serial, ui->portName->text());
 
         if (err.isEmpty()) {
             ui->portName->setDisabled(true);
             ui->commButton->setText("Disconnect");
-            comm_running = true;
+            setCommRunning(true);
+            ui->statusBar->showMessage("Simulation running");
         } else {
-            // ui->statusbar->
+            ui->statusBar->showMessage("Error: " + err);
         }
     }
+}
+
+void MainWindow::setCommRunning(bool running)
+{
+    ui->portName->setDisabled(running);
+    ui->powerState->setDisabled(!running);
+    ui->currentTemp->setDisabled(!running);
+    ui->setPoint->setDisabled(!running);
+    ui->modeSelector->setDisabled(!running);
+    ui->fanSelector->setDisabled(!running);
+    ui->modeSelector->setDisabled(!running);
+    ui->vSwing->setDisabled(!running);
+
+    comm_running = running;
 }
 
 void MainWindow::readData()

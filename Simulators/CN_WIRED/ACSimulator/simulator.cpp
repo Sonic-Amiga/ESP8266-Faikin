@@ -108,7 +108,6 @@ static ACState current_state = {
 
 QString openSerial(QSerialPort* serial, const QString& port)
 {
-    std::cout << "Opening serial port " << port << "..." << std::endl;
     serial->setPortName(port);
     serial->setBaudRate(QSerialPort::Baud115200);
     serial->setDataBits(QSerialPort::Data8);
@@ -125,13 +124,11 @@ QString openSerial(QSerialPort* serial, const QString& port)
         return error;
     }
 
-    std::cout << "Success!" << std::endl;
     return QString();
 }
 
 void closeSerial(QSerialPort* serial)
 {
-    std::cout << "Closing serial port" << std::endl;
     serial->close();
 }
 
