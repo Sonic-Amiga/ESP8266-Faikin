@@ -212,14 +212,13 @@ static void handleRxPacket()
 
 void serialRead(QSerialPort* serial)
 {
-    while (serial->read(&rx_buffer[rx_bytes], 1)) {
+    while (serial->read(&rx_buffer[rx_bytes], 1) == 1) {
         if (rx_buffer[rx_bytes] == '\r') {
             // CR is end of line, just like in a regular terminal
             rx_buffer[rx_bytes] = 0;
             handleRxPacket();
             rx_bytes = 0;
-        }
-        if (rx_buffer[rx_bytes] != '\n') {
+        } else if (rx_buffer[rx_bytes] != '\n') {
             // Ignore LFs
             if (rx_bytes == sizeof(rx_buffer) - 1) {
                 std::cout << "Garbage on serial port; buffer exceeded!" << std::endl;
