@@ -41,6 +41,8 @@ else()
     else()
         add_executable(ACSimulator
             ${PROJECT_SOURCES}
+            simulator.cpp
+            cn_wired.h simulator.hpp
         )
     endif()
 endif()
