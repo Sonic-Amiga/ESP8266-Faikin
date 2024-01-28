@@ -40,7 +40,10 @@ private slots:
 
     void on_dumpAllPackets_stateChanged(int arg1);
 
+    void on_portName_editingFinished();
+
 private:
+    void startSimulator();
     void setCommRunning(bool running);
     uint8_t getMode() const;
     uint8_t getFan() const;

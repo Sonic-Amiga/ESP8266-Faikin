@@ -37,16 +37,21 @@ void MainWindow::on_commButton_clicked()
         setCommRunning(false);
         ui->statusBar->clearMessage();
     } else {
-        QString err = openSerial(serial, ui->portName->text());
+        startSimulator();
+    }
+}
 
-        if (err.isEmpty()) {
-            ui->portName->setDisabled(true);
-            ui->commButton->setText("Disconnect");
-            setCommRunning(true);
-            ui->statusBar->showMessage("Simulation running");
-        } else {
-            ui->statusBar->showMessage("Error: " + err);
-        }
+void MainWindow::startSimulator()
+{
+    QString err = openSerial(serial, ui->portName->text());
+
+    if (err.isEmpty()) {
+        ui->portName->setDisabled(true);
+        ui->commButton->setText("Disconnect");
+        setCommRunning(true);
+        ui->statusBar->showMessage("Simulation running");
+    } else {
+        ui->statusBar->showMessage("Error: " + err);
     }
 }
 
@@ -200,5 +205,11 @@ void MainWindow::on_vSwing_stateChanged(int arg1)
 void MainWindow::on_dumpAllPackets_stateChanged(int arg1)
 {
     setDumpAllPackets(arg1 == Qt::Checked);
+}
+
+
+void MainWindow::on_portName_editingFinished()
+{
+    startSimulator();
 }
 

@@ -281,7 +281,7 @@ static void sendStatePacket(QSerialPort* serial)
 }
 
 // Callbacks for the UI
-void setIndoorTemp(uint8_t temp, QSerialPort* serial)
+void setIndoorTemp(int temp, QSerialPort* serial)
 {
     uint8_t response[CNW_PKT_LEN] = {0};
 
