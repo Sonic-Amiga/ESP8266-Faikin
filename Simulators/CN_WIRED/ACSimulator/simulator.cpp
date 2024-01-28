@@ -40,6 +40,7 @@ struct ACState
     bool    poweroff;
     uint8_t mode;
     uint8_t fan;
+    bool    v_swing;
 };
 
 static std::ostream& operator<<(std::ostream& s, const ACState& state)
@@ -93,8 +94,9 @@ static std::ostream& operator<<(std::ostream& s, const ACState& state)
         s << "UNKNOWN[" << +state.fan << ']';
         break;
     }
+    s << std::dec << " v_swing " << state.v_swing ? "ON" : "OFF";
 
-    return s << std::dec;
+    return s;
 }
 
 static ACState current_state = {
@@ -187,9 +189,17 @@ static void handleRxPacket()
     new_state.poweroff = binary_pkt[CNW_MODE_OFFSET] & CNW_MODE_POWEROFF;
     new_state.mode     = binary_pkt[CNW_MODE_OFFSET] & CNW_MODE_MASK;
     new_state.fan      = binary_pkt[CNW_FAN_OFFSET];
+    // Daichi controller in fact encodes swing status in two bytes at [5, 6] as follows:
+    // F0 11 - swing on
+    // 00 10 - swing off
+    // By experimenting with "status change" packet the controller was actually
+    // found to react on this particular bit, so we're just doing the same here.
+    // See more info in sendStatePacket().
+    new_state.v_swing  = binary_pkt[CNW_SWING_OFFSET] & CNW_V_SWING;
 
     std::cout << "Rx: " << new_state << std::endl;
 
+    // Report changed values to the UI and update our current state
     if (new_state.setpoint != current_state.setpoint) {
         current_state.setpoint = new_state.setpoint;
         ui_UpdateSetPoint(current_state.setpoint);
@@ -205,6 +215,10 @@ static void handleRxPacket()
     if (new_state.fan != current_state.fan) {
         current_state.fan = new_state.fan;
         ui_UpdateFan(current_state.fan);
+    }
+    if (new_state.v_swing != current_state.v_swing) {
+        current_state.v_swing = new_state.v_swing;
+        ui_UpdateVSwing(current_state.v_swing);
     }
 }
 
@@ -233,17 +247,50 @@ static void sendPacket(uint8_t* pkt, QSerialPort* serial)
     // Two hext digits per byte plus \r plus \0
     char hex[CNW_PKT_LEN * 2 + 2];
 
+    // In fact our bridge calculates the checksum itself, but let's pretend we
+    // don't know it. At least packets look complete in the log.
     pkt[CNW_CRC_OFFSET] = cnw_checksum(pkt);
 
     if (dump_all_packets) {
         std::cout << "Tx " << std::hex << Dump(pkt, CNW_PKT_LEN) << std::dec << std::endl;
     }
 
+    // Our bridge receives the data in hexadecimal form. Spaces are optional.
     sprintf(hex, "%02X%02X%02X%02X%02X%02X%02X%02X\r",
             pkt[0], pkt[1], pkt[2], pkt[3], pkt[4], pkt[5], pkt[6], pkt[7]);
 
     // Do not send trailing \0
     serial->write(hex, CNW_PKT_LEN * 2 + 1);
+}
+
+static void sendStatePacket(QSerialPort* serial)
+{
+    uint8_t response[CNW_PKT_LEN];
+
+    if (!serial)
+        return;
+
+    std::cout << "Tx " << current_state << std::endl;
+
+    // Encode the packet to send
+    response[CNW_TEMP_OFFSET]  = encode_bcd(current_state.setpoint);
+    // A real A/C seems to report set point in both bytes. A Daichi controller
+    // has been tested to interpret byte [0] and ignore byte [1].
+    // It's currently unknown what an original wall panel would do.
+    response[1]                = response[CNW_TEMP_OFFSET];
+    response[2]                = 0;
+    response[CNW_MODE_OFFSET]  = current_state.mode | (current_state.poweroff ? CNW_MODE_POWEROFF : 0);
+    response[CNW_FAN_OFFSET]   = current_state.fan;
+    // Meaning of hardcoded constants here is unknown; these values were dumped from a real A/C.
+    // Daichi controller was found to react on specific CNW_V_SWING bit in this byte,
+    // but we're fully simulating a real A/C here just in case. No idea how an original Daikin
+    // wall panel would react.
+    response[CNW_SWING_OFFSET] = current_state.v_swing ? 0x1F : 0x0A;
+    response[6]                = 0x10;
+    // This distinguishes mode change report from sensor values report
+    response[CNW_CRC_OFFSET]   = CNW_MODE_CHANGED;
+
+    sendPacket(response, serial);
 }
 
 // Callbacks for the UI
@@ -256,30 +303,15 @@ void setIndoorTemp(uint8_t temp, QSerialPort* serial)
 
     std::cout << "Tx indoors temp = " << temp << std::endl;
 
+    // A real-life A/C sends out sensor values every second. We currently
+    // only do so once when we want to send a new value (after it has been
+    // updated in the UI). Daichi controller handles this just fine; behavior
+    // of the original Daikin wall control panel is unknown.
     response[CNW_TEMP_OFFSET] = encode_bcd(temp);
-    response[1] = 0x04; // Unknown, dumped from an A/C
-    response[2] = 0x50;
-
-    sendPacket(response, serial);
-}
-
-void sendStatePacket(QSerialPort* serial)
-{
-    uint8_t response[CNW_PKT_LEN];
-
-    if (!serial)
-        return;
-
-    std::cout << "Tx " << current_state << std::endl;
-
-    response[CNW_TEMP_OFFSET] = encode_bcd(current_state.setpoint);
-    response[1] = response[CNW_TEMP_OFFSET];
-    response[2] = 0;
-    response[CNW_MODE_OFFSET] = current_state.mode | (current_state.poweroff ? CNW_MODE_POWEROFF : 0);
-    response[CNW_FAN_OFFSET] = current_state.fan;
-    response[5] = 0x0A; // Unknown, dumped from an A/C
-    response[6] = 0x10;
-    response[CNW_CRC_OFFSET] = CNW_MODE_CHANGED;
+    // Meaning of hardcoded constants here is unknown;
+    // these values were dumped from a real A/C
+    response[1]               = 0x04;
+    response[2]               = 0x50;
 
     sendPacket(response, serial);
 }
@@ -321,5 +353,18 @@ void setFan(uint8_t fan, QSerialPort* serial)
         return;
 
     current_state.fan = fan;
+    sendStatePacket(serial);
+}
+
+void setVSwing(bool on, QSerialPort* serial)
+{
+    // These callbacks are invoked by UI signals; and UI signals
+    // are also issued when we set a property after parsing a received packet.
+    // These conditionals catch signals generated by ourselves and prevent
+    // ping-pong effect.
+    if (current_state.v_swing == on)
+        return;
+
+    current_state.v_swing = on;
     sendStatePacket(serial);
 }

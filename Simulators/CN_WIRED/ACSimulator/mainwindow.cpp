@@ -20,6 +20,7 @@ MainWindow::MainWindow(QWidget *parent)
     setPoint(ui->setPoint->value(), nullptr);
     setMode(getMode(), nullptr);
     setFan(getFan(), nullptr);
+    setVSwing(ui->vSwing->isChecked(), nullptr);
 }
 
 MainWindow::~MainWindow()
@@ -119,6 +120,11 @@ void MainWindow::updateFan(uint8_t fan)
         ui->fanSelector->setCurrentIndex(i);
 }
 
+void MainWindow::updateVSwing(bool on)
+{
+    ui->vSwing->setChecked(on);
+}
+
 // These are called from within simulator.cpp in order to update the UI state
 void ui_UpdateSetPoint(uint8_t setpoint)
 {
@@ -140,6 +146,11 @@ void ui_UpdateFan(uint8_t fan)
     g_main->updateFan(fan);
 }
 
+void ui_UpdateVSwing(bool on)
+{
+    g_main->updateVSwing(on);
+}
+
 void MainWindow::on_currentTemp_valueChanged(int arg1)
 {
     setIndoorTemp(arg1, serial);
@@ -155,15 +166,17 @@ void MainWindow::on_setPoint_valueChanged(int arg1)
     setPoint(arg1, serial);
 }
 
-
 void MainWindow::on_modeSelector_currentIndexChanged(int index)
 {
     setMode(modes[index], serial);
 }
-
 
 void MainWindow::on_fanSelector_currentIndexChanged(int index)
 {
     setFan(fan_speeds[index], serial);
 }
 
+void MainWindow::on_vSwing_stateChanged(int arg1)
+{
+    setVSwing(arg1 == Qt::Checked, serial);
+}

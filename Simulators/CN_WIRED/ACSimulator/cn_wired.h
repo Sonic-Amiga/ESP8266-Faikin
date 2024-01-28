@@ -4,10 +4,11 @@
 // Data packet length
 #define CNW_PKT_LEN 8
 // Known offsets within the data packet
-#define CNW_TEMP_OFFSET 0
-#define CNW_MODE_OFFSET 3
-#define CNW_FAN_OFFSET  4
-#define CNW_CRC_OFFSET  7
+#define CNW_TEMP_OFFSET  0
+#define CNW_MODE_OFFSET  3
+#define CNW_FAN_OFFSET   4
+#define CNW_SWING_OFFSET 5
+#define CNW_CRC_OFFSET   7
 
 // Mode can be ORed with a poweroff flag
 #define CNW_MODE_POWEROFF 0x10
@@ -19,6 +20,8 @@
 #define CNW_HEAT 4
 #define CNW_AUTO 8
 
+// Known fan speed settings. Note that POWERFUL and ECO are not modifiers
+// but unique values, mutually exclusive with everything else.
 #define CNW_FAN_1        8
 #define CNW_FAN_2        4
 #define CNW_FAN_3        2
@@ -26,7 +29,12 @@
 #define CNW_FAN_POWERFUL 3
 #define CNW_FAN_ECO      9
 
-#define CNW_MODE_CHANGED 1
+// Vertical swing flag
+#define CNW_V_SWING      0x10
+
+// Packet types (from A/C to controller)
+#define CNW_SENSOR_REPORT 0
+#define CNW_MODE_CHANGED  1
 
 // Checksum calculation
 static inline unsigned char cnw_checksum(const unsigned char* data) {

@@ -20,6 +20,7 @@ public:
     void updatePower(bool on);
     void updateMode(uint8_t mode);
     void updateFan(uint8_t fan);
+    void updateVSwing(bool on);
 
 private slots:
     void on_commButton_clicked();
@@ -34,6 +35,8 @@ private slots:
     void on_modeSelector_currentIndexChanged(int index);
 
     void on_fanSelector_currentIndexChanged(int index);
+
+    void on_vSwing_stateChanged(int arg1);
 
 private:
     uint8_t getMode() const;
