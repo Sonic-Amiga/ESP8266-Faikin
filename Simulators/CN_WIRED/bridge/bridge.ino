@@ -1,3 +1,5 @@
+#include "terminal_in.hpp"
+
 // Pins we're using. RX2 is optional, can be commented out if not used
 #define RX1_PIN 2 // PD2
 //#define RX2_PIN 3 // PD3
@@ -17,7 +19,8 @@
 #define SPACE_LENGTH 300
 #define BIT_1_LENGTH 900
 #define BIT_0_LENGTH 400
-#define ACK_LENGTH   2000
+#define END_DELAY    16000
+#define END_LENGTH   2000
 // Detection tolerance
 #define THRESHOLD 200
 
@@ -123,7 +126,7 @@ void Receiver::onInterrupt() {
       // Got SYNC pulse, start receiving data
       last_rx = pulse_start;
       start();
-    } else if (length > ACK_LENGTH - THRESHOLD) {
+    } else if (length > END_LENGTH - THRESHOLD) {
       // Got ACK pulse
       if (!ack) {
           last_ack = pulse_start;
@@ -167,7 +170,7 @@ void Receiver::onInterrupt() {
 }
 
 // A very simple self-explanatory data send routine
-static void send(const uint8_t* data) {
+static void send(const uint8_t* data, bool end_pulse) {
   uint8_t bit  = digitalPinToBitMask(TX_PIN);
   uint8_t port = digitalPinToPort(TX_PIN);
   volatile uint8_t *out = portOutputRegister(port);
@@ -176,7 +179,7 @@ static void send(const uint8_t* data) {
 	uint8_t oldSREG = SREG;
 
   // Comment out this cli() in order to enable loopback testing
-//  cli();
+  cli();
 
   *out = low;
   delayMicroseconds(SYNC_LENGTH); // SYNC low
@@ -193,10 +196,12 @@ static void send(const uint8_t* data) {
   SEND_BYTE(data, 5)
   SEND_BYTE(data, 6)
   SEND_BYTE(data, 7)
-  *out = high; // Idle high
-  delayMicroseconds(16000);
-  *out = low;
-  delayMicroseconds(ACK_LENGTH); // ACK low
+  if (end_pulse) {
+    *out = high;
+    delayMicroseconds(END_DELAY); // Delay high
+    *out = low;
+    delayMicroseconds(END_LENGTH); // END low
+  }
   *out = high; // Idle high
 
   SREG = oldSREG; // Restore interrupts
@@ -236,32 +241,6 @@ static bool setCRC(uint8_t* data) {
   data[CRC_OFFSET] = calcCRC(data);
 }
 
-/*** Serial terminal stuff begins here ***/
-
-// TX buffer, where we collect data from the serial port
-// Similar to RX, reserve one byte in tne end in order to avoid extra checks
-static uint8_t tx_buffer[PKT_LEN + 1];
-static int tx_bytes;
-static int tx_bits;
-
-static void resetTx() {
-  tx_bytes     = 0;
-  tx_bits      = 4;
-  tx_buffer[0] = 0;
-}
-
-static void queueDigit(uint8_t v) {
-  if (tx_bytes == PKT_LEN) {
-    return; // Simple overflow prevention
-  }
-  tx_buffer[tx_bytes] |= (v << tx_bits);
-  tx_bits ^= 4;
-  if (tx_bits) {
-    tx_bytes++;
-    tx_buffer[tx_bytes] = 0; // This is why we reserve an extra byte
-  }
-}
-
 static void dump(const char* prefix, const uint8_t* buffer, int len) {
   Serial.print(prefix);
 
@@ -296,6 +275,79 @@ static void dump(const char* prefix, const Receiver& rx) {
   }
 }
 
+TerminalInput<32> termin;
+
+static uint8_t parseHexDigit(char c) {
+  return ((c < 'A') ? c - '0' : toupper(c) - 'A' + 10);
+}
+
+static int parseHex(const char* txt, const char** endp) {
+  int v = -1;
+
+  if (isxdigit(*txt)) {
+    v = parseHexDigit(*txt++);
+    if (isxdigit(*txt)) {
+      v = (v << 4) | parseHexDigit(*txt++);
+    }
+  }
+
+  *endp = txt;
+  return v;
+}
+
+static void handleCommand(const char* line) {
+  const char *p = line;
+  uint8_t tx_buffer[PKT_LEN];
+  int repeat;
+
+  // Command line format is:
+  // NN NN NN NN NN NN NN NN (hex bytes) - send the data
+  // Rx NN NN NN NN NN NN NN NN - send the data, repeat x times
+  // 
+  if (toupper(p[0]) == 'R') {
+    if (p[1] < '1' || p[1] > '9') {
+      Serial.print("Bad repeat count: ");
+      Serial.println(line);
+      return;
+    }
+    repeat = p[1] - '0';
+    p += 2;
+  } else {
+    repeat = 1; // Send once by default
+  }
+
+  for (int i = 0; i < PKT_LEN; i++) {
+    // Skip spaces if any
+    while (*p == ' ')
+      p++;
+
+    int byte = parseHex(p, &p);
+
+    if (byte == -1) {
+      Serial.print("Bad hex data: ");
+      Serial.println(line);
+      return;
+    }
+
+    tx_buffer[i] = byte;
+  }
+
+  // '_' postfix is used to tell the bridge to send a terminating 2ms LOW pulse
+  bool end_pulse = *p == '_';
+
+  setCRC(tx_buffer);
+  dump("Tx", tx_buffer, PKT_LEN);
+  if (end_pulse)
+    Serial.print(" +E");
+  Serial.print(" r");
+  Serial.println(repeat);
+
+  for (int i = 0; i < repeat; i++) {
+    send(tx_buffer, end_pulse);
+    delayMicroseconds(END_DELAY);
+  }
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -304,7 +356,6 @@ void setup() {
   rx2.begin(rx2PinInt);
 #endif
 
-  resetTx();
   pinMode(TX_PIN, OUTPUT);
   digitalWrite(TX_PIN, 1);
 }
@@ -330,24 +381,8 @@ void loop() {
     rx2.reset();
   }
 #endif
-  if (Serial.available() > 0) {
-    int c = Serial.read();
-    if (c == '\n' || c == '\r') {
-      if (tx_bytes == PKT_LEN) {
-        // Only send complete packets
-        setCRC(tx_buffer);
-        dump("Tx", tx_buffer, PKT_LEN);
-        Serial.println("");
-        send(tx_buffer);
-      } else {
-        Serial.print("Bad length: ");
-        Serial.println(tx_bytes);
-      }
-      resetTx();
-    } else if (isxdigit(c)) {
-      uint8_t v = (c < 'A') ? c - '0' : toupper(c) - 'A' + 10;
-      queueDigit(v);
-    }
+  if (const char *line = termin.getLine()) {
+    handleCommand(line);
   }
-  // Wait for interrupt here
+  yield();
 }
