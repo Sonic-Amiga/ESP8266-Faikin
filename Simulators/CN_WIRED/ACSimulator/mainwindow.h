@@ -3,6 +3,7 @@
 
 #include <QMainWindow>
 #include <QSerialPort>
+#include <QTimer>
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -25,6 +26,7 @@ public:
 private slots:
     void on_commButton_clicked();
     void readData();
+    void onTimer();
 
     void on_currentTemp_valueChanged(int arg1);
 
@@ -48,9 +50,15 @@ private:
     uint8_t getMode() const;
     uint8_t getFan() const;
 
+    QSerialPort* getSerial() const
+    {
+        return comm_running ? serial : nullptr;
+    }
+
     Ui::MainWindow *ui;
 
     QSerialPort* serial;
+    QTimer* timer;
     bool comm_running = false;
 };
 #endif // MAINWINDOW_H

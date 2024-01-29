@@ -3,20 +3,27 @@
 #include "./ui_mainwindow.h"
 #include "simulator.hpp"
 
+#define SENSOR_REPORT_INTERVAL 1000
+
 static MainWindow* g_main;
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
-    , ui(new Ui::MainWindow), serial(new QSerialPort(this))
+    , ui(new Ui::MainWindow),
+      serial(new QSerialPort(this)),
+      timer(new QTimer(this))
 {
     ui->setupUi(this);
+    timer->setSingleShot(false);
     connect(serial, &QSerialPort::readyRead, this, &MainWindow::readData);
+    connect(timer, &QTimer::timeout, this, &MainWindow::onTimer);
 
     // For UI update callbacks
     g_main = this;
 
     // Set initial values from the UI
     setDumpAllPackets(ui->dumpAllPackets->isChecked());
+    setIndoorTemp(ui->currentTemp->value());
     setPower(ui->powerState->isChecked(), nullptr);
     setPoint(ui->setPoint->value(), nullptr);
     setMode(getMode(), nullptr);
@@ -32,6 +39,7 @@ MainWindow::~MainWindow()
 void MainWindow::on_commButton_clicked()
 {
     if (comm_running) {
+        timer->stop();
         closeSerial(serial);
         ui->commButton->setText("Connect");
         setCommRunning(false);
@@ -50,6 +58,7 @@ void MainWindow::startSimulator()
         ui->commButton->setText("Disconnect");
         setCommRunning(true);
         ui->statusBar->showMessage("Simulation running");
+        timer->start(SENSOR_REPORT_INTERVAL);
     } else {
         ui->statusBar->showMessage("Error: " + err);
     }
@@ -72,6 +81,11 @@ void MainWindow::setCommRunning(bool running)
 void MainWindow::readData()
 {
     serialRead(serial);
+}
+
+void MainWindow::onTimer()
+{
+    sendSensorsPacket(getSerial());
 }
 
 // Keep these in sync with ComboBox items in UI definition!
@@ -174,7 +188,7 @@ void ui_UpdateVSwing(bool on)
 
 void MainWindow::on_currentTemp_valueChanged(int arg1)
 {
-    setIndoorTemp(arg1, serial);
+    setIndoorTemp(arg1);
 }
 
 void MainWindow::on_powerState_stateChanged(int arg1)

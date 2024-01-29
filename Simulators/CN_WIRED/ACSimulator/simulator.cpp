@@ -99,6 +99,8 @@ static std::ostream& operator<<(std::ostream& s, const ACState& state)
 }
 
 static ACState current_state;
+// The only sensor we know
+static int indoor_temp;
 
 QString openSerial(QSerialPort* serial, const QString& port)
 {
@@ -242,7 +244,7 @@ static void sendPacket(uint8_t* pkt, QSerialPort* serial)
     pkt[CNW_CRC_OFFSET] = cnw_checksum(pkt);
 
     if (dump_all_packets) {
-        std::cout << "Tx " << std::hex << Dump(pkt, CNW_PKT_LEN) << std::dec << std::endl;
+        std::cout << "Tx: " << std::hex << Dump(pkt, CNW_PKT_LEN) << std::dec << std::endl;
     }
 
     // Our bridge receives the data in hexadecimal form. Spaces are optional.
@@ -251,6 +253,28 @@ static void sendPacket(uint8_t* pkt, QSerialPort* serial)
 
     // Do not send trailing \0
     serial->write(hex, CNW_PKT_LEN * 2 + 2);
+}
+
+void sendSensorsPacket(QSerialPort* serial)
+{
+    uint8_t response[CNW_PKT_LEN] = {0};
+
+    if (!serial)
+        return;
+
+    std::cout << "Tx: indoors temp = " << indoor_temp << std::endl;
+
+    // A real-life A/C sends out sensor values every second. We currently
+    // only do so once when we want to send a new value (after it has been
+    // updated in the UI). Daichi controller handles this just fine; behavior
+    // of the original Daikin wall control panel is unknown.
+    response[CNW_TEMP_OFFSET] = encode_bcd(indoor_temp);
+    // Meaning of hardcoded constants here is unknown;
+    // these values were dumped from a real A/C
+    response[1]               = 0x04;
+    response[2]               = 0x50;
+
+    sendPacket(response, serial);
 }
 
 static void sendStatePacket(QSerialPort* serial)
@@ -284,26 +308,9 @@ static void sendStatePacket(QSerialPort* serial)
 }
 
 // Callbacks for the UI
-void setIndoorTemp(int temp, QSerialPort* serial)
+void setIndoorTemp(int temp)
 {
-    uint8_t response[CNW_PKT_LEN] = {0};
-
-    if (!serial)
-        return;
-
-    std::cout << "Tx indoors temp = " << temp << std::endl;
-
-    // A real-life A/C sends out sensor values every second. We currently
-    // only do so once when we want to send a new value (after it has been
-    // updated in the UI). Daichi controller handles this just fine; behavior
-    // of the original Daikin wall control panel is unknown.
-    response[CNW_TEMP_OFFSET] = encode_bcd(temp);
-    // Meaning of hardcoded constants here is unknown;
-    // these values were dumped from a real A/C
-    response[1]               = 0x04;
-    response[2]               = 0x50;
-
-    sendPacket(response, serial);
+    indoor_temp = temp;
 }
 
 void setPower(bool on, QSerialPort* serial)
