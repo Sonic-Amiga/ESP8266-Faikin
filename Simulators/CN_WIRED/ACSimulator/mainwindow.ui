@@ -14,7 +14,7 @@
    <string>AC Simulator</string>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <widget class="QWidget" name="">
+   <widget class="QWidget" name="layoutWidget">
     <property name="geometry">
      <rect>
       <x>10</x>
@@ -57,7 +57,7 @@
        <item row="1" column="0">
         <widget class="QCheckBox" name="powerState">
          <property name="enabled">
-          <bool>false</bool>
+          <bool>true</bool>
          </property>
          <property name="text">
           <string>Power</string>
@@ -79,7 +79,7 @@
          <item>
           <widget class="QSpinBox" name="currentTemp">
            <property name="enabled">
-            <bool>false</bool>
+            <bool>true</bool>
            </property>
            <property name="keyboardTracking">
             <bool>false</bool>
@@ -103,7 +103,7 @@
          <item>
           <widget class="QSpinBox" name="setPoint">
            <property name="enabled">
-            <bool>false</bool>
+            <bool>true</bool>
            </property>
            <property name="keyboardTracking">
             <bool>false</bool>
@@ -127,7 +127,7 @@
          <item>
           <widget class="QComboBox" name="modeSelector">
            <property name="enabled">
-            <bool>false</bool>
+            <bool>true</bool>
            </property>
            <item>
             <property name="text">
@@ -170,7 +170,7 @@
          <item>
           <widget class="QComboBox" name="fanSelector">
            <property name="enabled">
-            <bool>false</bool>
+            <bool>true</bool>
            </property>
            <item>
             <property name="text">
@@ -209,7 +209,7 @@
        <item row="6" column="0">
         <widget class="QCheckBox" name="vSwing">
          <property name="enabled">
-          <bool>false</bool>
+          <bool>true</bool>
          </property>
          <property name="text">
           <string>Vertical swing</string>

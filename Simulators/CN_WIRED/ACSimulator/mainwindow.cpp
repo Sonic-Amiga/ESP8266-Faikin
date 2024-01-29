@@ -67,13 +67,6 @@ void MainWindow::startSimulator()
 void MainWindow::setCommRunning(bool running)
 {
     ui->portName->setDisabled(running);
-    ui->powerState->setDisabled(!running);
-    ui->currentTemp->setDisabled(!running);
-    ui->setPoint->setDisabled(!running);
-    ui->modeSelector->setDisabled(!running);
-    ui->fanSelector->setDisabled(!running);
-    ui->modeSelector->setDisabled(!running);
-    ui->vSwing->setDisabled(!running);
 
     comm_running = running;
 }
@@ -193,27 +186,27 @@ void MainWindow::on_currentTemp_valueChanged(int arg1)
 
 void MainWindow::on_powerState_stateChanged(int arg1)
 {
-    setPower(arg1 == Qt::Checked, serial);
+    setPower(arg1 == Qt::Checked, getSerial());
 }
 
 void MainWindow::on_setPoint_valueChanged(int arg1)
 {
-    setPoint(arg1, serial);
+    setPoint(arg1, getSerial());
 }
 
 void MainWindow::on_modeSelector_currentIndexChanged(int index)
 {
-    setMode(modes[index], serial);
+    setMode(modes[index], getSerial());
 }
 
 void MainWindow::on_fanSelector_currentIndexChanged(int index)
 {
-    setFan(fan_speeds[index], serial);
+    setFan(fan_speeds[index], getSerial());
 }
 
 void MainWindow::on_vSwing_stateChanged(int arg1)
 {
-    setVSwing(arg1 == Qt::Checked, serial);
+    setVSwing(arg1 == Qt::Checked, getSerial());
 }
 
 void MainWindow::on_dumpAllPackets_stateChanged(int arg1)
