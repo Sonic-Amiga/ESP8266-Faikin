@@ -40,6 +40,12 @@ class Receiver {
       rx_bytes = -1; // This signals "Wait for sync" state
     }
 
+    bool isBusy() const {
+      // isReceiving state is only entered after SYNC pulse has ended.
+      // Checking for !state covers the SYNC and the final space.
+      return !state || isReceiving();
+    }
+
     bool isReceiving() const {
       return rx_bytes >= 0 && rx_bytes < RX_LEN;
     }
@@ -277,6 +283,11 @@ static void dump(const char* prefix, const Receiver& rx) {
 
 TerminalInput<32> termin;
 
+// Packet, pending for send
+uint8_t tx_buffer[PKT_LEN];
+uint8_t tx_repeat = 0;
+bool    tx_end_pulse;
+
 static uint8_t parseHexDigit(char c) {
   return ((c < 'A') ? c - '0' : toupper(c) - 'A' + 10);
 }
@@ -297,12 +308,12 @@ static int parseHex(const char* txt, const char** endp) {
 
 static void handleCommand(const char* line) {
   const char *p = line;
-  uint8_t tx_buffer[PKT_LEN];
+  uint8_t hex_buffer[PKT_LEN];
   int repeat;
 
   // Command line format is:
   // NN NN NN NN NN NN NN NN (hex bytes) - send the data
-  // Rx NN NN NN NN NN NN NN NN - send the data, repeat x times
+  // Rx NN NN NN NN NN NN NN NN - send the data, repeat x times (one digit only)
   // 
   if (toupper(p[0]) == 'R') {
     if (p[1] < '1' || p[1] > '9') {
@@ -329,23 +340,15 @@ static void handleCommand(const char* line) {
       return;
     }
 
-    tx_buffer[i] = byte;
+    hex_buffer[i] = byte;
   }
 
-  // '_' postfix is used to tell the bridge to send a terminating 2ms LOW pulse
-  bool end_pulse = *p == '_';
-
+  // Queue the packet
+  memcpy(tx_buffer, hex_buffer, PKT_LEN);
   setCRC(tx_buffer);
-  dump("Tx", tx_buffer, PKT_LEN);
-  if (end_pulse)
-    Serial.print(" +E");
-  Serial.print(" r");
-  Serial.println(repeat);
-
-  for (int i = 0; i < repeat; i++) {
-    send(tx_buffer, end_pulse);
-    delayMicroseconds(END_DELAY);
-  }
+  tx_repeat = repeat;
+  // '_' postfix is used to tell the bridge to send a terminating 2ms LOW pulse
+  tx_end_pulse = *p == '_';
 }
 
 void setup() {
@@ -384,5 +387,28 @@ void loop() {
   if (const char *line = termin.getLine()) {
     handleCommand(line);
   }
+  // Only send our pending data when the other side is not busy transmitting.
+  // Daichi controller is known to choke if this is violated; we assume that all
+  // CN_WIRED devices follow this rule. This also explains why the send() routine
+  // appears to work fine with enabled interrupts.
+  if (tx_repeat && !rx1.isBusy()) {
+    // Unwinding the first iteration this way avoids unwanted delay
+    // before first of after last iteration
+    send(tx_buffer, tx_end_pulse);
+    for (int i = 1; i < tx_repeat; i++) {
+      delayMicroseconds(END_DELAY);
+      send(tx_buffer, tx_end_pulse);
+    }
+
+    // Respond back after actually sending the packet
+    dump("Tx", tx_buffer, PKT_LEN);
+    if (tx_end_pulse)
+      Serial.print('_');
+    Serial.print(" R");
+    Serial.println(tx_repeat);
+
+    tx_repeat = 0; // Sent
+  }
+
   yield();
 }
