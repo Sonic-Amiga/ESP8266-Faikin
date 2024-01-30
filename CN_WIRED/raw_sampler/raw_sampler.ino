@@ -14,6 +14,7 @@ class Receiver {
 
     void begin(void(*handler)()) {
       state = 1;
+      reset();
       pinMode(pin, INPUT);
       attachInterrupt(digitalPinToInterrupt(pin), handler, CHANGE);
     }
