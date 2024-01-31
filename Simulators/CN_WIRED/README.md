@@ -51,7 +51,7 @@ The interface is proprietary serial, not compatible with RS-232.
 The data packet is transmitted as:
 
 1. Idle state of the line is HIGH
-2. Sync pulse - LOW level 2500 microseconds
+2. Sync pulse - LOW level 2600 microseconds
 3. Start bit - HIGH level 1000 microseconds (this can be interpreted as data bit "1")
 4. Space - LOW level 300 microseconds
 5. Data bits are represented as HIGH level pulses. 900 microseconds for "1" and 400 usec for "0".
@@ -64,8 +64,8 @@ Bytes are transmitted right-to-left, i. e. least significant bit first.
 Since data bits of different values have different times, the signal has no defined bit rate. However it's possible to define
 minimum and maximum possible packet durations:
 
-- Minimum (all zeros): 2500 + 1000 + (400 + 300) * 64 = 48300 microseconds
-- Maximum (all ones):  2500 + 1000 + (900 + 300) * 64 = 86700 microseconds
+- Minimum (all zeros): 2600 + 1000 + (400 + 300) * 64 = 48400 microseconds
+- Maximum (all ones):  2600 + 1000 + (900 + 300) * 64 = 86800 microseconds
 
 The data packet from the conditioner to controller is followed by an addition sequence of an unknown purpose:
 
