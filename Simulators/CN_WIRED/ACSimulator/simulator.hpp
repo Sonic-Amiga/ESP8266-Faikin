@@ -8,6 +8,8 @@ void closeSerial(QSerialPort* serial);
 void serialRead(QSerialPort* serial);
 
 void setIndoorTemp(int temp);
+void setUnknownByte1(int val);
+void setUnknownByte2(int val);
 void setDumpAllPackets(bool on);
 void sendSensorsPacket(QSerialPort* serial);
 void setPower(bool on, QSerialPort* serial);

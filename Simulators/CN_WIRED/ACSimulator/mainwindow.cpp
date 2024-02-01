@@ -24,6 +24,8 @@ MainWindow::MainWindow(QWidget *parent)
     // Set initial values from the UI
     setDumpAllPackets(ui->dumpAllPackets->isChecked());
     setIndoorTemp(ui->currentTemp->value());
+    setUnknownByte1(ui->unknownByte1->value());
+    setUnknownByte2(ui->unknownByte2->value());
     setPower(ui->powerState->isChecked(), nullptr);
     setPoint(ui->setPoint->value(), nullptr);
     setMode(getMode(), nullptr);
@@ -218,5 +220,17 @@ void MainWindow::on_dumpAllPackets_stateChanged(int arg1)
 void MainWindow::on_portName_editingFinished()
 {
     startSimulator();
+}
+
+
+void MainWindow::on_unknownByte1_valueChanged(int arg1)
+{
+    setUnknownByte1(arg1);
+}
+
+
+void MainWindow::on_unknownByte2_valueChanged(int arg1)
+{
+    setUnknownByte2(arg1);
 }
 

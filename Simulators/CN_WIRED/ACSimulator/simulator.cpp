@@ -101,6 +101,10 @@ static std::ostream& operator<<(std::ostream& s, const ACState& state)
 static ACState current_state;
 // The only sensor we know
 static int indoor_temp;
+// We don't know meaning of these. The user may change them in the UI
+// for experiments.
+static int unknown_byte1;
+static int unknown_byte2;
 
 QString openSerial(QSerialPort* serial, const QString& port)
 {
@@ -269,10 +273,8 @@ void sendSensorsPacket(QSerialPort* serial)
     // updated in the UI). Daichi controller handles this just fine; behavior
     // of the original Daikin wall control panel is unknown.
     response[CNW_TEMP_OFFSET] = encode_bcd(indoor_temp);
-    // Meaning of hardcoded constants here is unknown;
-    // these values were dumped from a real A/C
-    response[1]               = 0x04;
-    response[2]               = 0x50;
+    response[1]               = unknown_byte1;
+    response[2]               = unknown_byte2;
 
     sendPacket(response, serial);
 }
@@ -311,6 +313,16 @@ static void sendStatePacket(QSerialPort* serial)
 void setIndoorTemp(int temp)
 {
     indoor_temp = temp;
+}
+
+void setUnknownByte1(int val)
+{
+    unknown_byte1 = val;
+}
+
+void setUnknownByte2(int val)
+{
+    unknown_byte2 = val;
 }
 
 void setPower(bool on, QSerialPort* serial)

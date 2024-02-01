@@ -7,20 +7,20 @@
     <x>0</x>
     <y>0</y>
     <width>415</width>
-    <height>318</height>
+    <height>394</height>
    </rect>
   </property>
   <property name="windowTitle">
    <string>AC Simulator</string>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <widget class="QWidget" name="layoutWidget">
+   <widget class="QWidget" name="">
     <property name="geometry">
      <rect>
       <x>10</x>
-      <y>23</y>
+      <y>24</y>
       <width>277</width>
-      <height>228</height>
+      <height>288</height>
      </rect>
     </property>
     <layout class="QVBoxLayout" name="verticalLayout">
@@ -116,6 +116,66 @@
         </layout>
        </item>
        <item row="4" column="0">
+        <layout class="QHBoxLayout" name="horizontalLayout_6">
+         <item>
+          <widget class="QLabel" name="label_6">
+           <property name="text">
+            <string>byte[1]</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QSpinBox" name="unknownByte1">
+           <property name="enabled">
+            <bool>true</bool>
+           </property>
+           <property name="keyboardTracking">
+            <bool>false</bool>
+           </property>
+           <property name="maximum">
+            <number>255</number>
+           </property>
+           <property name="value">
+            <number>4</number>
+           </property>
+           <property name="displayIntegerBase">
+            <number>16</number>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item row="5" column="0">
+        <layout class="QHBoxLayout" name="horizontalLayout_7">
+         <item>
+          <widget class="QLabel" name="label_7">
+           <property name="text">
+            <string>byte[2]</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QSpinBox" name="unknownByte2">
+           <property name="enabled">
+            <bool>true</bool>
+           </property>
+           <property name="keyboardTracking">
+            <bool>false</bool>
+           </property>
+           <property name="maximum">
+            <number>255</number>
+           </property>
+           <property name="value">
+            <number>80</number>
+           </property>
+           <property name="displayIntegerBase">
+            <number>16</number>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item row="6" column="0">
         <layout class="QHBoxLayout" name="horizontalLayout_3">
          <item>
           <widget class="QLabel" name="label_3">
@@ -158,7 +218,7 @@
          </item>
         </layout>
        </item>
-       <item row="5" column="0">
+       <item row="7" column="0">
         <layout class="QHBoxLayout" name="horizontalLayout_5">
          <item>
           <widget class="QLabel" name="label_5">
@@ -206,7 +266,7 @@
          </item>
         </layout>
        </item>
-       <item row="6" column="0">
+       <item row="8" column="0">
         <widget class="QCheckBox" name="vSwing">
          <property name="enabled">
           <bool>true</bool>

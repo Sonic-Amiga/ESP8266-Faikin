@@ -44,6 +44,10 @@ private slots:
 
     void on_portName_editingFinished();
 
+    void on_unknownByte1_valueChanged(int arg1);
+
+    void on_unknownByte2_valueChanged(int arg1);
+
 private:
     void startSimulator();
     void setCommRunning(bool running);
