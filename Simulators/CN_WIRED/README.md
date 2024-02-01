@@ -132,6 +132,12 @@ This stands for:
  - byte[5] = 0x0A - vertical swing off (0x10 bitmask), the rest is unknown
  - byte[6] = 0x10 - unknown
  - byte[7] = 0x71 - 7 is a 4-bit sum of all nibbles; '1' in the low nibble signals "mode changed" packet.
- 
+
+The conditioner is known to send "mode changed" packets three times in a row, perhaps for better reliability.
+There is no ACK/NAK signalling in this protocol.
+
 Packets from the controller to the conditioner always specify operation modes. Their format is identical to
 "mode change" packet above, but with type set to 0.
+
+NOTE: There is no way to query the conditioner about current operation modes. The controller is supposed to track
+the current state internally, based on own controls and "mode changed" nofitications from the AC.
