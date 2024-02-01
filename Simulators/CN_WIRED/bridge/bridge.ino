@@ -368,7 +368,7 @@ void loop() {
 
   if (rx1.getAck(ack_ts)) {
     printTimestamp(ack_ts);
-    Serial.println("Rx1 ACK");
+    Serial.println("Rx1 _");
   }
   if (rx1.isDataReady()) {
     dump("Rx1", rx1);
@@ -377,7 +377,7 @@ void loop() {
 #ifdef RX2_PIN
   if (rx2.getAck(ack_ts)) {
     printTimestamp(ack_ts);
-    Serial.println("Rx2 ACK");
+    Serial.println("Rx2 _");
   }
   if (rx2.isDataReady()) {
     dump("Rx2", rx2);

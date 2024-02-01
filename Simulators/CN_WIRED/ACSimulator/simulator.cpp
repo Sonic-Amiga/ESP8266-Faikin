@@ -144,7 +144,19 @@ static void handleRxPacket()
 
     const char *startp = strstr(rx_buffer, "Rx1 ");
 
-    if (!startp || startp[6] != ' ') {
+    if (!startp) {
+        std::cout << "Unexpected data received: " << rx_buffer << std::endl;
+        return;
+    }
+    if (startp[4] == '_') {
+        // "Rx1 _" is a legitimate text, telling that a 2ms pulse has been found.
+        return;
+    }
+    if (strlen(startp) < 7) {
+        std::cout << "Unexpected data received (trimmed): " << rx_buffer << std::endl;
+        return;
+    }
+    if (startp[6] != ' ') {
         std::cout << "Unexpected data received: " << rx_buffer << std::endl;
         return;
     }

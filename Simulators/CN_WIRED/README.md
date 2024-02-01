@@ -67,14 +67,71 @@ minimum and maximum possible packet durations:
 - Minimum (all zeros): 2600 + 1000 + (400 + 300) * 64 = 48400 microseconds
 - Maximum (all ones):  2600 + 1000 + (900 + 300) * 64 = 86800 microseconds
 
-The data packet from the conditioner to controller is followed by an addition sequence of an unknown purpose:
+The data packet is normally followed by an additional sequence of an unknown purpose:
 
 1. Delay of 16 milliseconds, the line is in idle state (HIGH)
 2. LOW pulse of 2 milliseconds.
 3. The line returns to HIGH idle state.
 
-Data packets from the controller to the conditioner do not have this amendment.
+The bridge detects these pulses and report them as "_" for informational purposes.
+
+NOTE: This 2 milliseconds pulse is apparently optional; as Daichi controller does not send it to the conditioner.
+However, the same controller rejects received packet if the pulse is not present. Original Daikin equipment has been
+verified to send this pulse both ways. The bridge can send packets both with and without this pulse, presence of the
+pulse is indicated by "_" postfix to the packet being sent.
 
 ## Data packet format
 
-TBD
+Meaning of data packet differs between directions. The air conditioner sends sensor readout approximately every second, with
+the data having the following format:
+
+ - byte[0] - Current indoors temperature, encoded as BCD
+ - byte[1] - unknown
+ - byte[2] - unknown
+ - byte[3] ... byte[6] - 0 (unused)
+ - byte[7] - checksum and packet type indicator:
+             - High nibble - 4-bit sum of all other nibbles
+			 - Low nibble - packet type = 0
+
+When a mode change happens on the conditioner, it also sends out a "mode changed" packet of the following format:
+
+ - byte[0] - Set point, BCD encoded
+ - byte[1] - unknown
+ - byte[2] - unknown
+ - byte[3] - Mode:
+             0x00 - dry
+             0x01 - fan
+             0x02 - cool
+			 0x04 - heat
+			 0x08 - auto
+			 0x10 - power off flag, ORed with current mode.
+ - byte[4] - Fan speed, including specials:
+             0x08 - speed 1
+             0x04 - speed 2
+             0x02 - speed 4
+             0x01 - speed "auto"
+             0x03 - "powerful" aka "turbo" mode
+             0x09 - "quiet" mode
+ - byte[5] - Bit 5 contains "vertical swing on" flag, the rest is unknown
+ - byte[6] - unknown
+ - byte[7] - checksum and packet type indicator
+             - High nibble - 4-bit sum of all other nibbles
+			 - Low nibble - packet type = 1
+
+Example of mode change packet:
+
+ Rx1 80 18 18 00 01 08 0A 10 71 OK
+
+This stands for:
+
+ - byte[0] = 0x18 - Set point 18 C
+ - byte[1] = 0x18 - AC seems to always set it equal to byte[1], exact meaning is unknown
+ - byte[2] = 0x00 - not used ?
+ - byte[3] = 0x01 - power on, "fan" mode
+ - byte[4] = 0x08 - "quiet" mode active
+ - byte[5] = 0x0A - vertical swing off (0x10 bitmask), the rest is unknown
+ - byte[6] = 0x10 - unknown
+ - byte[7] = 0x71 - 7 is a 4-bit sum of all nibbles; '1' in the low nibble signals "mode changed" packet.
+ 
+Packets from the controller to the conditioner always specify operation modes. Their format is identical to
+"mode change" packet above, but with type set to 0.
