@@ -4,9 +4,6 @@
 [submodule "ftdizap"]
 	path = ESP/ftdizap
 	url = https://github.com/revk/ftdizap
-[submodule "PCBCase"]
-	path = PCBCase
-	url = https://github.com/revk/PCBCase
 [submodule "SQLlib"]
 	path = SQLlib
 	url = https://github.com/revk/SQLlib
@@ -16,6 +13,3 @@
 [submodule "AXL"]
 	path = Tools/AXL
 	url = https://github.com/revk/AXL
-[submodule "ESP32-BlueCoinT"]
-	path = ESP32-BlueCoinT
-	url = https://github.com/revk/ESP32-BlueCoinT
