@@ -1,0 +1,8 @@
+build
+*~
+*.old
+*.pem
+sdkconfig
+dependencies.lock
+managed_components
+*.bin
