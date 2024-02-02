@@ -2,7 +2,7 @@
 	path = components/ESP32-RevK
 	url = https://github.com/revk/ESP32-RevK
 [submodule "ftdizap"]
-	path = ftdizap
+	path = ESP/ftdizap
 	url = https://github.com/revk/ftdizap
 [submodule "PCBCase"]
 	path = PCBCase
