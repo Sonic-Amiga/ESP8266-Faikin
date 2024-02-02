@@ -1,3 +1,5 @@
+// This code is a research tool, used for verification of CN_WIRED signal timings
+
 // Pins we're using. RX2 is optional, can be commented out if not used
 #define RX1_PIN 2 // PD2
 
