@@ -252,8 +252,8 @@ static void sendPacket(uint8_t* pkt, QSerialPort* serial)
     // AC appends 2ms LOW pulse to each sent packet.
     // Daichi controller is known to discard packets without this pulse, so we
     // are instructing our bridge to produce it by appending '_' to the line.
-    // Two hext digits per byte plus underscore plus \r plus \0
-    char hex[CNW_PKT_LEN * 2 + 3];
+    // Two hext digits per byte plus \r plus \0
+    char hex[CNW_PKT_LEN * 2 + 2];
 
     // In fact our bridge calculates the checksum itself, but let's pretend we
     // don't know it. At least packets look complete in the log.
@@ -264,11 +264,11 @@ static void sendPacket(uint8_t* pkt, QSerialPort* serial)
     }
 
     // Our bridge receives the data in hexadecimal form. Spaces are optional.
-    sprintf(hex, "%02X%02X%02X%02X%02X%02X%02X%02X_\r",
+    sprintf(hex, "%02X%02X%02X%02X%02X%02X%02X%02X\r",
             pkt[0], pkt[1], pkt[2], pkt[3], pkt[4], pkt[5], pkt[6], pkt[7]);
 
     // Do not send trailing \0
-    serial->write(hex, CNW_PKT_LEN * 2 + 2);
+    serial->write(hex, CNW_PKT_LEN * 2 + 1);
 }
 
 void sendSensorsPacket(QSerialPort* serial)

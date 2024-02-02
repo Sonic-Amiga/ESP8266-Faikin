@@ -176,7 +176,7 @@ void Receiver::onInterrupt() {
 }
 
 // A very simple self-explanatory data send routine
-static void send(const uint8_t* data, bool end_pulse) {
+static void send(const uint8_t* data) {
   uint8_t bit  = digitalPinToBitMask(TX_PIN);
   uint8_t port = digitalPinToPort(TX_PIN);
   volatile uint8_t *out = portOutputRegister(port);
@@ -202,12 +202,10 @@ static void send(const uint8_t* data, bool end_pulse) {
   SEND_BYTE(data, 5)
   SEND_BYTE(data, 6)
   SEND_BYTE(data, 7)
-  if (end_pulse) {
-    *out = high;
-    delayMicroseconds(END_DELAY); // Delay high
-    *out = low;
-    delayMicroseconds(END_LENGTH); // END low
-  }
+  *out = high; // Delay high
+  delayMicroseconds(END_DELAY);
+  *out = low; // Terminator low
+  delayMicroseconds(END_LENGTH);
   *out = high; // Idle high
 
   SREG = oldSREG; // Restore interrupts
@@ -285,8 +283,7 @@ TerminalInput<32> termin;
 
 // Packet, pending for send
 uint8_t tx_buffer[PKT_LEN];
-uint8_t tx_repeat = 0;
-bool    tx_end_pulse;
+bool send_pending = false;
 
 static uint8_t parseHexDigit(char c) {
   return ((c < 'A') ? c - '0' : toupper(c) - 'A' + 10);
@@ -346,9 +343,7 @@ static void handleCommand(const char* line) {
   // Queue the packet
   memcpy(tx_buffer, hex_buffer, PKT_LEN);
   setCRC(tx_buffer);
-  tx_repeat = repeat;
-  // '_' postfix is used to tell the bridge to send a terminating 2ms LOW pulse
-  tx_end_pulse = *p == '_';
+  send_pending = true;
 }
 
 void setup() {
@@ -391,23 +386,15 @@ void loop() {
   // Daichi controller is known to choke if this is violated; we assume that all
   // CN_WIRED devices follow this rule. This also explains why the send() routine
   // appears to work fine with enabled interrupts.
-  if (tx_repeat && !rx1.isBusy()) {
+  if (send_pending && !rx1.isBusy()) {
     // Unwinding the first iteration this way avoids unwanted delay
     // before first of after last iteration
-    send(tx_buffer, tx_end_pulse);
-    for (int i = 1; i < tx_repeat; i++) {
-      delayMicroseconds(END_DELAY);
-      send(tx_buffer, tx_end_pulse);
-    }
-
+    send(tx_buffer);
     // Respond back after actually sending the packet
     dump("Tx", tx_buffer, PKT_LEN);
-    if (tx_end_pulse)
-      Serial.print('_');
-    Serial.print(" R");
-    Serial.println(tx_repeat);
-
-    tx_repeat = 0; // Sent
+    Serial.println();
+    // Sent
+    send_pending = 0;
   }
 
   yield();

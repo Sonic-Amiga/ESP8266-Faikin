@@ -56,7 +56,9 @@ The data packet is transmitted as:
 4. Space - LOW level 300 microseconds
 5. Data bits are represented as HIGH level pulses. 900 microseconds for "1" and 400 usec for "0".
 6. Each data bit is followed by 300 microseconds LOW (space)
-7. After the final space the line goes back to HIGH idle state
+7. Pause - HIGH level 16000 microseconds
+8. Terminator pulse - LOW level 2000 microseconds
+9. The line returns back to HIGH idle state
 
 There are always a total of 64 data bits, or 8 bytes, in the packet. There is no defined explicit termination sequence.
 Bytes are transmitted right-to-left, i. e. least significant bit first.
@@ -64,26 +66,22 @@ Bytes are transmitted right-to-left, i. e. least significant bit first.
 Since data bits of different values have different times, the signal has no defined bit rate. However it's possible to define
 minimum and maximum possible packet durations:
 
-- Minimum (all zeros): 2600 + 1000 + (400 + 300) * 64 = 48400 microseconds
-- Maximum (all ones):  2600 + 1000 + (900 + 300) * 64 = 86800 microseconds
+- Minimum (all zeros): 2600 + 1000 + (400 + 300) * 64 + 16000 + 2000 = 64600 microseconds
+- Maximum (all ones):  2600 + 1000 + (900 + 300) * 64 + 16000 + 2000 = 98400 microseconds
 
-The data packet is normally followed by an additional sequence of an unknown purpose:
+The final terminator pulse of 2000 microseconds appears to be ignored by the conditioner; at least some models are able to
+receive and handle packets without it. Daichi controller does not send this pulse to the conditioner; however it rejects
+incoming packets from the conditioner if they do not have it. Original Daikin equipment (wired wall panels) send this pulse
+both ways, so we consider it mandatory.
 
-1. Delay of 16 milliseconds, the line is in idle state (HIGH)
-2. LOW pulse of 2 milliseconds.
-3. The line returns to HIGH idle state.
-
-The bridge detects these pulses and report them as "_" for informational purposes.
-
-NOTE: This 2 milliseconds pulse is apparently optional; as Daichi controller does not send it to the conditioner.
-However, the same controller rejects received packet if the pulse is not present. Original Daikin equipment has been
-verified to send this pulse both ways. The bridge can send packets both with and without this pulse, presence of the
-pulse is indicated by "_" postfix to the packet being sent.
+Since the Arduino bridge is also an RnD tool, it separately detects these pulses and report them as "_" with the timestamp for
+informational purposes.
 
 ## Data packet format
 
-Meaning of data packet differs between directions. The air conditioner sends sensor readout approximately every second, with
-the data having the following format:
+### From conditioner to controller 
+
+The air conditioner sends sensor readout approximately every second, with the data having the following format:
 
  - byte[0] - Current indoors temperature, encoded as BCD
  - byte[1] - unknown
@@ -93,7 +91,7 @@ the data having the following format:
              - High nibble - 4-bit sum of all other nibbles
 			 - Low nibble - packet type = 0
 
-When a mode change happens on the conditioner, it also sends out a "mode changed" packet of the following format:
+When an original IR remote control is used, conditioner sends  out a "mode changed" packet of the following format:
 
  - byte[0] - Set point, BCD encoded
  - byte[1] - unknown
@@ -136,8 +134,12 @@ This stands for:
 The conditioner is known to send "mode changed" packets three times in a row, perhaps for better reliability.
 There is no ACK/NAK signalling in this protocol.
 
-Packets from the controller to the conditioner always specify operation modes. Their format is identical to
-"mode change" packet above, but with type set to 0.
+### From controller to conditioner
 
-NOTE: There is no way to query the conditioner about current operation modes. The controller is supposed to track
-the current state internally, based on own controls and "mode changed" nofitications from the AC.
+Packets from the controller to the conditioner only specify operation modes. Their format is identical to
+"mode change" packet above, but with type set to 0. If type is set to any other value, the conditioner ignores the packet!
+
+Daichi controller is also known to send its control packets 4 times in a row when an action is issued by the user.
+
+There is no way to query the conditioner about its current operation modes. The controller is supposed to track the
+current state internally, based on own controls and "mode changed" nofitications from the AC.
