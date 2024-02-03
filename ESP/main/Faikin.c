@@ -11,6 +11,8 @@ static const char TAG[] = "Faikin";
 #include "esp_http_server.h"
 #include <math.h>
 #include "mdns.h"
+#include "cn_wired.h"
+#include "cn_wired_driver.h"
 #include "daikin_s21.h"
 
 // Macros for setting values
@@ -112,7 +114,8 @@ settings
 #include "acextras.m"
 
 #define	PROTO_S21	1
-const char *protoname[] = { "X50", "S21" };
+#define  PROTO_CNW   2
+const char *protoname[] = { "X50", "S21", "CNW"};
 
 // Globals
 static httpd_handle_t webserver = NULL;
@@ -122,6 +125,40 @@ static uint8_t proto = 0;
 #ifdef ELA
 static bleenv_t *bletemp = NULL;
 #endif
+
+static int
+is_s21 (void)
+{
+   return proto == PROTO_S21;
+}
+
+static int
+is_cn_wired (void)
+{
+   return proto == PROTO_CNW;
+}
+
+// 'fanstep' setting overrides number of available fan speeds
+// 1 = force 5 speeds; 2 = force 3 speeds; 0 = default
+// For experiments only !
+static int
+have_5_fan_speeds (void)
+{
+   return fanstep == 1 || (!fanstep && is_s21 ());
+}
+
+void
+protocol_found (void)
+{
+   protocol_set = 1;
+   if (proto != protocol)
+   {
+      jo_t j = jo_object_alloc ();
+      jo_int (j, "protocol", proto);
+      revk_setting (j);
+      jo_free (&j);
+   }
+}
 
 // The current aircon state and stats
 struct
@@ -208,7 +245,7 @@ daikin_set_temp (const char *name, float *ptr, uint64_t flag, float value)
 {                               // Setting a value (float)
    if (*ptr == value)
       return NULL;              // No change
-   if (proto & PROTO_S21)
+   if (is_s21 ())
       value = roundf (value * 2.0) / 2.0;       // S21 only does 0.5C steps
    xSemaphoreTake (daikin.mutex, portMAX_DELAY);
    *ptr = value;
@@ -297,6 +334,7 @@ set_float (const char *name, float *ptr, uint64_t flag, float val)
 #define set_val(name,val) set_uint8(#name,&daikin.name,CONTROL_##name,val)
 #define set_int(name,val) set_int(#name,&daikin.name,CONTROL_##name,val)
 #define set_temp(name,val) set_float(#name,&daikin.name,CONTROL_##name,val)
+#define set_bool(name,val) set_val(name, (val ? 1 : 0))
 
 jo_t
 jo_comms_alloc (void)
@@ -332,6 +370,101 @@ check_length(uint8_t cmd, uint8_t cmd2, int len, int required, const uint8_t * p
    return 0;
 }
 
+static void
+comm_timeout (void)
+{
+   daikin.talking = 0;
+   loopback = 0;
+   jo_t j = jo_comms_alloc ();
+   jo_bool (j, "timeout", 1);
+   revk_error ("comms", &j);
+}
+
+static void
+comm_badcrc (uint8_t c, const uint8_t *buf, int rxlen)
+{
+   jo_t j = jo_comms_alloc ();
+   jo_stringf (j, "badsum", "%02X", c);
+   jo_base16 (j, "data", buf, rxlen);
+   revk_error ("comms", &j);
+}
+
+
+// Parse an incoming CN_WIRED packet
+// These packets always have a fixed length of CNW_PKT_LEN
+void
+cn_wired_handle_packet (uint8_t * packet)
+{
+   static int cnw_retries = 0;
+
+   uint8_t c = cnw_checksum (packet);
+
+   if (c != packet[CNW_CRC_TYPE_OFFSET]) {
+      // Bad checksum
+      comm_badcrc (c, packet, CNW_PKT_LEN);
+
+      // When autodetecting a protocol, we only have 2 retries before deciding
+      // that it's not CN_WIRED
+      if (!protocol_set && ++cnw_retries == 2)
+      {
+         cnw_retries = 0;
+         daikin.talking = 0;
+      }
+      return;
+   }
+
+   // Confirm the protocol if not yet
+   if (!protocol_set)
+      protocol_found ();
+   
+   if (debug)
+   {
+      jo_t j = jo_comms_alloc ();
+      jo_base16 (j, "data", packet, CNW_PKT_LEN);
+      revk_info ("rx", &j);
+   }
+
+   if ((packet[CNW_CRC_TYPE_OFFSET] & CNW_TYPE_MASK) == CNW_MODE_CHANGED)
+   {
+      set_val (online, 1);
+      set_val (power, !(packet[CNW_MODE_OFFSET] & CNW_MODE_POWEROFF));
+      set_val (mode, cnw_decode_mode(packet));
+      set_val (heat, daikin.mode == FAIKIN_MODE_HEAT);
+      set_temp (temp, decode_bcd (packet[CNW_TEMP_OFFSET]));
+
+      switch (packet[CNW_FAN_OFFSET])
+      {
+      // Faikin supports 5 fan speeds, but CN_WIRED only has 3. We are using
+      // odd speed values in this case
+      case CNW_FAN_1:
+         set_val (fan, FAIKIN_FAN_1);
+         break;
+      case CNW_FAN_2:
+         set_val (fan, FAIKIN_FAN_3);
+         break;
+      case CNW_FAN_3:
+         set_val (fan, FAIKIN_FAN_5);
+         break;
+      case CNW_FAN_AUTO:
+         set_val (fan, FAIKIN_FAN_AUTO);
+         break;
+      // Eco and Powerful are dedicated flags for us, because this is how other protocols
+      // handle it
+      case CNW_FAN_ECO:
+         set_val (econo, 1);
+         break;
+      case CNW_FAN_POWERFUL:
+         set_val (powerful, 1);
+         break;
+      }
+
+      set_bool (swingv, packet[CNW_SWING_OFFSET] & CNW_V_SWING);
+   } else {
+      set_temp (home, decode_bcd (packet[CNW_TEMP_OFFSET]));
+   }
+
+}
+
 // Decode S21 response payload
 int
 daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
@@ -349,10 +482,10 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
          if (check_length(cmd, cmd2, len, S21_PAYLOAD_LEN, payload))
          {
             set_val (online, 1);
-            set_val (power, (payload[0] == '1') ? 1 : 0);
+            set_bool (power, payload[0] == '1');
             set_val (mode, "30721003"[payload[1] & 0x7] - '0');    // FHCA456D mapped from AXDCHXF
-            set_val (heat, daikin.mode == 1);      // Crude - TODO find if anything actually tells us this
-            if (daikin.mode == 1 || daikin.mode == 2 || daikin.mode == 3)
+            set_val (heat, daikin.mode == FAIKIN_MODE_HEAT);      // Crude - TODO find if anything actually tells us this
+            if (daikin.mode == FAIKIN_MODE_HEAT || daikin.mode == FAIKIN_MODE_COOL || daikin.mode == FAIKIN_MODE_DRY)
                set_temp (temp, s21_decode_target_temp (payload[2]));
             else if (!isnan (daikin.temp))
                set_temp (temp, daikin.temp);       // Does not have temp in other modes
@@ -367,20 +500,20 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
       case '5':                // 'G5' - swing status
          if (check_length(cmd, cmd2, len, 1, payload))
          {
-            set_val (swingv, (payload[0] & 1) ? 1 : 0);
-            set_val (swingh, (payload[0] & 2) ? 1 : 0);
+            set_bool (swingv, payload[0] & 1);
+            set_bool (swingh, payload[0] & 2);
          }
          break;
       case '6':                // 'G6' - "powerful" mode
          if (check_length(cmd, cmd2, len, 1, payload))
          {
-            set_val (powerful, payload[0] == '2' ? 1 : 0);
+            set_bool (powerful, payload[0] == '2');
          }
          break;
       case '7':                // 'G7' - "eco" mode
          if (check_length(cmd, cmd2, len, 2, payload))
          {
-            set_val (econo, payload[1] == '2' ? 1 : 0);
+            set_bool (econo, payload[1] == '2');
          }
          break;
          // Check 'G'
@@ -506,21 +639,11 @@ daikin_response (uint8_t cmd, int len, uint8_t * payload)
    }
 }
 
-void
-protocol_found (void)
-{
-   protocol_set = 1;
-   if (proto != protocol)
-   {
-      jo_t j = jo_object_alloc ();
-      jo_int (j, "protocol", proto);
-      revk_setting (j);
-      jo_free (&j);
-   }
-}
-
 // Timeout value for serial port read
 #define READ_TIMEOUT (500 / portTICK_PERIOD_MS)
+
+// Timeout value for CN_WIRED reads (4 seconds)
+#define CNW_READ_TIMEOUT (4000 / portTICK_PERIOD_MS)
 
 int
 daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
@@ -598,11 +721,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
       rxlen = uart_read_bytes (uart, buf, 1, READ_TIMEOUT);
       if (rxlen != 1)
       {
-         daikin.talking = 0;
-         loopback = 0;
-         jo_t j = jo_comms_alloc ();
-         jo_bool (j, "timeout", 1);
-         revk_error ("comms", &j);
+         comm_timeout();
          return S21_NOACK;
       }
       if (*buf == STX)
@@ -642,10 +761,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
    uint8_t c = s21_checksum (buf, rxlen);
    if (c != buf[rxlen - 2])
    {                            // Sees checksum of 03 actually sends as 05
-      jo_t j = jo_comms_alloc ();
-      jo_stringf (j, "badsum", "%02X", c);
-      jo_base16 (j, "data", buf, rxlen);
-      revk_error ("comms", &j);
+      comm_badcrc(c, buf, rxlen);
       return S21_BAD;           // Ignore - it'll get resent some time
    }
    if (rxlen >= 5 && buf[0] == STX && buf[rxlen - 1] == ETX && buf[1] == cmd)
@@ -719,11 +835,7 @@ daikin_command (uint8_t cmd, int txlen, uint8_t * payload)
    int rxlen = uart_read_bytes (uart, buf, sizeof (buf), READ_TIMEOUT);
    if (rxlen <= 0)
    {
-      daikin.talking = 0;
-      loopback = 0;
-      jo_t j = jo_comms_alloc ();
-      jo_bool (j, "timeout", 1);
-      revk_error ("comms", &j);
+      comm_timeout ();
       return;
    }
    if (dump)
@@ -739,10 +851,7 @@ daikin_command (uint8_t cmd, int txlen, uint8_t * payload)
    if (c != 0xFF)
    {
       daikin.talking = 0;
-      jo_t j = jo_comms_alloc ();
-      jo_stringf (j, "badsum", "%02X", c);
-      jo_base16 (j, "data", buf, rxlen);
-      revk_error ("comms", &j);
+      comm_badcrc (c, buf, rxlen);
       return;
    }
    // Process response
@@ -1159,7 +1268,7 @@ web_root (httpd_req_t * req)
       char temp[300];
       sprintf (temp,
                "<td colspan=6><input type=range class=temp min=%d max=%d step=%s id=%s onchange=\"w('%s',+this.value);\"><span id=T%s></span></td>",
-               tmin, tmax, (proto & PROTO_S21) ? "0.5" : "0.1", field, field, field);
+               tmin, tmax, is_s21 () ? "0.5" : "0.1", field, field, field);
       httpd_resp_sendstr_chunk (req, temp);
       addf (tag);
    }
@@ -1167,7 +1276,7 @@ web_root (httpd_req_t * req)
    addb ("Power", "power");
    httpd_resp_sendstr_chunk (req, "</tr>");
    add ("Mode", "mode", "Auto", "A", "Heat", "H", "Cool", "C", "Dry", "D", "Fan", "F", NULL);
-   if (fanstep == 1 || (!fanstep && (proto & PROTO_S21)))
+   if (have_5_fan_speeds ())
       add ("Fan", "fan", "1", "1", "2", "2", "3", "3", "4", "4", "5", "5", "Auto", "A", "Night", "Q", NULL);
    else
       add ("Fan", "fan", "Low", "1", "Mid", "3", "High", "5", NULL);
@@ -1786,7 +1895,7 @@ send_ha_config (void)
          jo_string (j, "fan_mode_cmd_t", "~/fan");
          jo_string (j, "fan_mode_stat_t", revk_id);
          jo_string (j, "fan_mode_stat_tpl", "{{value_json.fan}}");
-         if (fanstep == 1 || (!fanstep && (proto & PROTO_S21)))
+         if (have_5_fan_speeds ())
          {
             jo_array (j, "fan_modes");
             jo_string (j, NULL, "auto");
@@ -1870,7 +1979,7 @@ ha_status (void)
    }
    if (daikin.status_known & CONTROL_fan)
    {
-      if (fanstep == 1 || (!fanstep && (proto & PROTO_S21)))
+      if (have_5_fan_speeds ())
       {
          const char *fans[] = { "auto", "1", "2", "3", "4", "5", "night" };     // A12345Q
          jo_string (j, "fan", fans[daikin.fan]);
@@ -1918,21 +2027,28 @@ void uart_setup (void)
       __ets_vprintf_disable = 1;
       esp_log_set_putchar(faikin_log_putc);
    }
-   uart_config_t uart_config = {
-      .baud_rate = (proto & PROTO_S21) ? 2400 : 9600,
-      .data_bits = UART_DATA_8_BITS,
-      .parity = UART_PARITY_EVEN,
-      .stop_bits = (proto & PROTO_S21) ? UART_STOP_BITS_2 : UART_STOP_BITS_1,
-      .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
-   };
-   if (!err)
-      err = uart_param_config (uart, &uart_config);
-   if (!err)
-      err = uart_driver_install (uart, 1024, 0, 0, NULL, 0);
+
+   if (is_cn_wired ()) {
+      // Hardcoded for UART0. Not sure if it even can be used with UART1;
+      // because it seems Rx is not connected in the chip
+      err = cn_wired_driver_install (GPIO_NUM_3, GPIO_NUM_1);
+   } else {
+      uart_config_t uart_config = {
+         .baud_rate = is_s21 () ? 2400 : 9600,
+         .data_bits = UART_DATA_8_BITS,
+         .parity = UART_PARITY_EVEN,
+         .stop_bits = is_s21 () ? UART_STOP_BITS_2 : UART_STOP_BITS_1,
+         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
+      };
+      if (!err)
+         err = uart_param_config (uart, &uart_config);
+      if (!err)
+         err = uart_driver_install (uart, 1024, 0, 0, NULL, 0);
+   }
    if (err)
    {
       jo_t j = jo_object_alloc ();
-      jo_string (j, "error", "Failed to uart");
+      jo_string (j, "error", "Failed to set up commmunication port");
       jo_int (j, "uart", uart);
       jo_string (j, "description", esp_err_to_name (err));
       revk_error ("uart", &j);
@@ -2098,7 +2214,7 @@ app_main ()
          // Poke UART
          uart_setup ();
          uart_flush (uart);     // Clean start
-         if (!(proto & PROTO_S21))
+         if (!is_s21 ())
          {                      // Startup
             daikin_command (0xAA, 1, (uint8_t[])
                             {
@@ -2157,7 +2273,17 @@ app_main ()
          // Talk to the AC
          if (uart != UART_NONE)
          {
-            if (proto & PROTO_S21)
+            if (is_cn_wired ())
+            {
+               uint8_t buf[CNW_PKT_LEN];
+
+               if (cn_wired_read_bytes (buf, CNW_READ_TIMEOUT) == 0) {
+                  comm_timeout();
+               } else {
+                  cn_wired_handle_packet (buf);
+               }
+            }
+            else if (is_s21 ())
             {                   // Older S21
                char temp[5];
                if (debug)
@@ -2476,7 +2602,7 @@ app_main ()
                {                // Power, mode, fan, automation
                   if (daikin.power)
                   {
-                     int step = (fanstep ? : (proto & PROTO_S21) ? 1 : 2);
+                     int step = (fanstep ? : is_s21 () ? 1 : 2);
                      if ((b * 2 > t || daikin.slave) && !a)
                      {          // Mode switch
                         jo_string (j, "set-mode", hot ? "C" : "H");
@@ -2577,7 +2703,7 @@ app_main ()
                         set = max + reference - current + coolback;     // Cooling mode but apply positive offset to not actually cool any more than this
                   }
                   // Limit settings to acceptable values
-                  if (proto & PROTO_S21)
+                  if (is_s21 ())
                      set = roundf (set * 2.0) / 2.0;    // S21 only does 0.5C steps
                   if (set < tmin)
                      set = tmin;
@@ -2633,6 +2759,9 @@ app_main ()
       // We're here if protocol has been broken. We'll reconfigure the UART
       // and restart from scratch, possibly changing the protocol, if we're
       // in detection phase.
-      uart_driver_delete (uart);
+      if (is_cn_wired ())
+         cn_wired_driver_delete ();
+      else
+         uart_driver_delete (uart);
    }
 }
