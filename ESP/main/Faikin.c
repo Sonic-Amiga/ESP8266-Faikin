@@ -113,10 +113,17 @@ settings
 #define	s(name,len)	b(name)
 #include "acextras.m"
 
-#define  PROTO_X50   0
-#define	PROTO_S21	1
-#define  PROTO_CNW   2
-const char *protoname[] = { "X50", "S21", "CNW"};
+enum
+{
+   PROTO_TYPE_S21,
+   PROTO_TYPE_X50A,
+   PROTO_TYPE_CN_WIRED,
+   PROTO_TYPE_MAX,
+};
+const char *const prototype[] = { "S21", "X50A", "CN_WIRED" };
+
+// We don't support pin inversion on 8266
+#define	PROTO_SCALE	1
 
 // Globals
 static httpd_handle_t webserver = NULL;
@@ -127,22 +134,16 @@ static uint8_t proto = 0;
 static bleenv_t *bletemp = NULL;
 #endif
 
-static int
-is_x50 (void)
+static uint8_t
+proto_type (void)
 {
-   return proto == PROTO_X50;
+   return proto / PROTO_SCALE;
 }
 
-static int
-is_s21 (void)
+static const char *
+proto_name (void)
 {
-   return proto == PROTO_S21;
-}
-
-static int
-is_cn_wired (void)
-{
-   return proto == PROTO_CNW;
+   return prototype[proto_type()];
 }
 
 // 'fanstep' setting overrides number of available fan speeds
@@ -151,7 +152,7 @@ is_cn_wired (void)
 static int
 have_5_fan_speeds (void)
 {
-   return fanstep == 1 || (!fanstep && is_s21 ());
+   return fanstep == 1 || (!fanstep && proto_type () == PROTO_TYPE_S21);
 }
 
 void
@@ -252,7 +253,7 @@ daikin_set_temp (const char *name, float *ptr, uint64_t flag, float value)
 {                               // Setting a value (float)
    if (*ptr == value)
       return NULL;              // No change
-   if (is_s21 ())
+   if (proto_type () == PROTO_TYPE_S21)
       value = roundf (value * 2.0) / 2.0;       // S21 only does 0.5C steps
    xSemaphoreTake (daikin.mutex, portMAX_DELAY);
    *ptr = value;
@@ -347,7 +348,7 @@ jo_t
 jo_comms_alloc (void)
 {
    jo_t j = jo_object_alloc ();
-   jo_string (j, "protocol", loopback ? "loopback" : protoname[proto]);
+   jo_string (j, "protocol", loopback ? "loopback" : proto_name());
    return j;
 }
 
@@ -1284,7 +1285,7 @@ web_root (httpd_req_t * req)
       char temp[300];
       sprintf (temp,
                "<td colspan=6><input type=range class=temp min=%d max=%d step=%s id=%s onchange=\"w('%s',+this.value);\"><span id=T%s></span></td>",
-               tmin, tmax, is_s21 () ? "0.5" : "0.1", field, field, field);
+               tmin, tmax, proto_type () == PROTO_TYPE_S21 ? "0.5" : "0.1", field, field, field);
       httpd_resp_sendstr_chunk (req, temp);
       addf (tag);
    }
@@ -1294,7 +1295,7 @@ web_root (httpd_req_t * req)
    add ("Mode", "mode", "Auto", "A", "Heat", "H", "Cool", "C", "Dry", "D", "Fan", "F", NULL);
    if (have_5_fan_speeds ())
       add ("Fan", "fan", "1", "1", "2", "2", "3", "3", "4", "4", "5", "5", "Auto", "A", "Night", "Q", NULL);
-   else if (is_cn_wired ())
+   else if (proto_type () == PROTO_TYPE_CN_WIRED)
       add ("Fan", "fan", "Low", "1", "Mid", "3", "High", "5", "Auto", "A", NULL);
    else
       add ("Fan", "fan", "Low", "1", "Mid", "3", "High", "5", NULL);
@@ -2026,10 +2027,10 @@ void uart_setup (void)
    if (!protocol_set)
    {
       proto++;
-      if (proto >= sizeof (protoname) / sizeof (*protoname))
+      if (proto >= PROTO_TYPE_MAX * PROTO_SCALE)
          proto = 0;
    }
-   ESP_LOGI (TAG, "Trying %s", protoname[proto]);
+   ESP_LOGI (TAG, "Trying %s", proto_name());
    // This makes sure UART is clear and previously emitted log text has reached
    // its destination
    // fflush(stdout) doesn't do the job, neither uart_wait_tx_done() is reliable
@@ -2046,16 +2047,16 @@ void uart_setup (void)
       esp_log_set_putchar(faikin_log_putc);
    }
 
-   if (is_cn_wired ()) {
+   if (proto_type () == PROTO_TYPE_CN_WIRED) {
       // Hardcoded for UART0. Not sure if it even can be used with UART1;
       // because it seems Rx is not connected in the chip
       err = cn_wired_driver_install (GPIO_NUM_3, GPIO_NUM_1);
    } else {
       uart_config_t uart_config = {
-         .baud_rate = is_s21 () ? 2400 : 9600,
+         .baud_rate = proto_type () == PROTO_TYPE_S21 ? 2400 : 9600,
          .data_bits = UART_DATA_8_BITS,
          .parity = UART_PARITY_EVEN,
-         .stop_bits = is_s21 () ? UART_STOP_BITS_2 : UART_STOP_BITS_1,
+         .stop_bits = proto_type () == PROTO_TYPE_S21 ? UART_STOP_BITS_2 : UART_STOP_BITS_1,
          .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
       };
       if (!err)
@@ -2234,7 +2235,7 @@ app_main ()
          // Poke UART
          uart_setup ();
 
-         if (is_x50 ())
+         if (proto_type () == PROTO_TYPE_X50A)
          {                      // Startup
             daikin_command (0xAA, 1, (uint8_t[])
                             {
@@ -2250,7 +2251,7 @@ app_main ()
          }
       } else
       {                         // Mock configuration for interface testing
-         proto = PROTO_S21;
+         proto = PROTO_TYPE_S21 * PROTO_SCALE;
          protocol_set = 1;
          daikin.control_changed = 0;
          daikin.online = 1;
@@ -2260,10 +2261,11 @@ app_main ()
       do
       {
          // Polling loop. We exit from here only if we get a protocol error
-         if (!is_cn_wired ())
+         if (proto_type () != PROTO_TYPE_CN_WIRED)
          {
             /* wait for next second. For CN_WIRED we don't need to actively poll the
-               A/C, so we don't need this delay. We get a packet when we get it */
+               A/C, so we don't need this delay. We just keep reading, packets should
+               come once per second, and that's our timing */
             usleep (1000000LL - (esp_timer_get_time () % 1000000LL));
          }
 #ifdef ELA
@@ -2298,7 +2300,7 @@ app_main ()
          // Talk to the AC
          if (uart != UART_NONE)
          {
-            if (is_cn_wired ())
+            if (proto_type () == PROTO_TYPE_CN_WIRED)
             {
                uint8_t buf[CNW_PKT_LEN];
 
@@ -2366,7 +2368,7 @@ app_main ()
                   }
                }
             }
-            else if (is_s21 ())
+            else if (proto_type () == PROTO_TYPE_S21)
             {                   // Older S21
                char temp[5];
                if (debug)
@@ -2685,7 +2687,7 @@ app_main ()
                {                // Power, mode, fan, automation
                   if (daikin.power)
                   {
-                     int step = (fanstep ? : is_s21 () ? 1 : 2);
+                     int step = (fanstep ? : proto_type () == PROTO_TYPE_S21 ? 1 : 2);
                      if ((b * 2 > t || daikin.slave) && !a)
                      {          // Mode switch
                         jo_string (j, "set-mode", hot ? "C" : "H");
@@ -2786,7 +2788,7 @@ app_main ()
                         set = max + reference - current + coolback;     // Cooling mode but apply positive offset to not actually cool any more than this
                   }
                   // Limit settings to acceptable values
-                  if (is_s21 ())
+                  if (proto_type () == PROTO_TYPE_S21)
                      set = roundf (set * 2.0) / 2.0;    // S21 only does 0.5C steps
                   if (set < tmin)
                      set = tmin;
@@ -2842,7 +2844,7 @@ app_main ()
       // We're here if protocol has been broken. We'll reconfigure the UART
       // and restart from scratch, possibly changing the protocol, if we're
       // in detection phase.
-      if (is_cn_wired ())
+      if (proto_type () == PROTO_TYPE_CN_WIRED)
          cn_wired_driver_delete ();
       else
          uart_driver_delete (uart);
