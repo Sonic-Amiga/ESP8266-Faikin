@@ -423,6 +423,8 @@ cn_wired_handle_packet (uint8_t * packet)
       // Bad checksum
       comm_badcrc (c, packet, CNW_PKT_LEN);
 
+      daikin.online = false;
+
       // When autodetecting a protocol, we only have 2 retries before deciding
       // that it's not CN_WIRED
       if (!protocol_set && ++cnw_retries == 2)
@@ -433,9 +435,12 @@ cn_wired_handle_packet (uint8_t * packet)
       return;
    }
 
-   // Confirm the protocol if not yet
+   // We're now online
+   daikin.online = true;
+
    if (!protocol_set)
    {
+      // Protocol autodetection complete
       protocol_found ();
 
       // The only way for us to learn actual values is to receive a CNW_MODE_CHANGED
@@ -2299,6 +2304,7 @@ app_main ()
 
                if (cn_wired_read_bytes (buf, CNW_READ_TIMEOUT) == 0)
                {
+                  daikin.online = false;
                   comm_timeout();
                }
                else
