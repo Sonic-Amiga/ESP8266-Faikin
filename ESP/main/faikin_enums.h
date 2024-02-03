@@ -71,17 +71,13 @@ cnw_encode_mode(uint8_t mode, uint8_t power)
                               CNW_DRY};
     uint8_t ret = table[mode];
 
-    return power ? ret : ret & CNW_MODE_POWEROFF;
+    return power ? ret : (ret | CNW_MODE_POWEROFF);
 }
 
 static inline uint8_t
-cnw_encode_fan(uint8_t fan, uint8_t eco, uint8_t powerful)
+cnw_encode_fan(uint8_t fan)
 {
-    if (powerful)
-        return CNW_FAN_POWERFUL;
-    else if (eco)
-        return CNW_FAN_ECO;
-    else if (fan == FAIKIN_FAN_AUTO)
+    if (fan == FAIKIN_FAN_AUTO)
         return CNW_FAN_AUTO;
     else if (fan > FAIKIN_FAN_3)
         return CNW_FAN_3;

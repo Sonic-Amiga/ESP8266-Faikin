@@ -2307,16 +2307,37 @@ app_main ()
                   
                   if (daikin.control_changed)
                   {
+                     int new_fan;
+
                      // Send new modes to the AC. We have just received a data packet; CN_WIRED devices
                      // may dislike being interrupted, so we delay for 20 ms in order for the packet
                      // trailer pulse (which we ignore) passes
                      sys_msleep(20);
 
+                     // In these A/Cs Eco and Powerful are also fan speed settings, so a frobbed
+                     // control takes precedence. If none, we assume priorities as follows:
+                     // powerful, eco, explicit fan speed.
+                     // The result is: Faikin remembers last explicit fan speed settings. When both
+                     // Eco and Powerful switches are off, the A/C is reverted to the explicit fan
+                     // speed previously remembered.
+                     if (daikin.control_changed & CONTROL_fan)
+                        new_fan = cnw_encode_fan(daikin.fan);
+                     else if (daikin.control_changed & CONTROL_econo)
+                        new_fan = daikin.econo ? CNW_FAN_ECO : cnw_encode_fan(daikin.fan);
+                     else if (daikin.control_changed & CONTROL_powerful)
+                        new_fan = daikin.powerful ? CNW_FAN_POWERFUL : cnw_encode_fan(daikin.fan);
+                     else if (daikin.powerful)
+                        new_fan = CNW_FAN_POWERFUL;
+                     else if (daikin.econo)
+                        new_fan = CNW_FAN_ECO;
+                     else
+                        new_fan = cnw_encode_fan(daikin.fan);
+
                      buf[CNW_TEMP_OFFSET]     = encode_bcd(daikin.temp);
                      buf[1]                   = 0;    // Unused ?
                      buf[2]                   = 0x23; // No idea what this means; Daichi sends it
                      buf[CNW_MODE_OFFSET]     = cnw_encode_mode(daikin.mode, daikin.power);
-                     buf[CNW_FAN_OFFSET]      = cnw_encode_fan(daikin.fan, daikin.econo, daikin.powerful);
+                     buf[CNW_FAN_OFFSET]      = new_fan;
                      buf[CNW_SWING_OFFSET]    = daikin.swingv ? CNW_V_SWING : 0;
                      buf[CNW_CRC_TYPE_OFFSET] = CNW_COMMAND;
                      buf[CNW_CRC_TYPE_OFFSET] = cnw_checksum(buf);
