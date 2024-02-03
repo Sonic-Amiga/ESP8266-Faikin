@@ -4,6 +4,8 @@
 #include <string.h>
 #include <task.h>
 
+#include <rom/gpio.h>
+
 #include "cn_wired.h"
 #include "cn_wired_driver.h"
 
@@ -103,6 +105,9 @@ esp_err_t cn_wired_driver_install (gpio_num_t rx, gpio_num_t tx)
     receiver.task     = xTaskGetCurrentTaskHandle();
 
     xTaskNotifyStateClear(receiver.task);
+
+    gpio_pad_select_gpio(rx);
+    gpio_pad_select_gpio(tx);
 
     err = gpio_set_direction(rx, GPIO_MODE_INPUT);
     if (err)

@@ -113,6 +113,7 @@ settings
 #define	s(name,len)	b(name)
 #include "acextras.m"
 
+#define  PROTO_X50   0
 #define	PROTO_S21	1
 #define  PROTO_CNW   2
 const char *protoname[] = { "X50", "S21", "CNW"};
@@ -125,6 +126,12 @@ static uint8_t proto = 0;
 #ifdef ELA
 static bleenv_t *bletemp = NULL;
 #endif
+
+static int
+is_x50 (void)
+{
+   return proto == PROTO_X50;
+}
 
 static int
 is_s21 (void)
@@ -2044,6 +2051,8 @@ void uart_setup (void)
          err = uart_param_config (uart, &uart_config);
       if (!err)
          err = uart_driver_install (uart, 1024, 0, 0, NULL, 0);
+      if (!err)
+         err = uart_flush (uart);     // Clean start
    }
    if (err)
    {
@@ -2213,8 +2222,8 @@ app_main ()
       {
          // Poke UART
          uart_setup ();
-         uart_flush (uart);     // Clean start
-         if (!is_s21 ())
+
+         if (is_x50 ())
          {                      // Startup
             daikin_command (0xAA, 1, (uint8_t[])
                             {
@@ -2240,7 +2249,12 @@ app_main ()
       do
       {
          // Polling loop. We exit from here only if we get a protocol error
-         usleep (1000000LL - (esp_timer_get_time () % 1000000LL));      /* wait for next second */
+         if (!is_cn_wired ())
+         {
+            /* wait for next second. For CN_WIRED we don't need to actively poll the
+               A/C, so we don't need this delay. We get a packet when we get it */
+            usleep (1000000LL - (esp_timer_get_time () % 1000000LL));
+         }
 #ifdef ELA
          if (ble && *autob)
          {                      // Automatic external temperature logic - only really useful if autor/autot set
