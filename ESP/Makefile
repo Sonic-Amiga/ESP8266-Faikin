@@ -17,14 +17,8 @@ all:
 	@cp build/bootloader/bootloader.bin $(PROJECT_NAME)$(SUFFIX)-bootloader.bin
 	@echo Done: $(PROJECT_NAME)$(SUFFIX).bin
 
-issue:	
-	-git pull
-	-git submodule update --recursive
-	-git commit -a -m checkpoint
-	@make
-	cp $(PROJECT_NAME)*.bin release
-	git commit -a -m release
-	git push
+issue:
+	./issue.sh
 
 flash:
 	idf.py flash
