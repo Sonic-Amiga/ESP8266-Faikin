@@ -396,6 +396,19 @@ comm_badcrc (uint8_t c, const uint8_t *buf, int rxlen)
    revk_error ("comms", &j);
 }
 
+void
+cn_wired_report_fan_speed(const uint8_t* packet)
+{
+   int8_t new_fan = cnw_decode_fan(packet);
+
+   if (new_fan != FAIKIN_FAN_INVALID)
+      set_val (fan, new_fan);
+   // Eco and Powerful are dedicated flags for us, because this is how
+   // other protocols handle it
+   set_bool (econo, packet[CNW_FAN_OFFSET] == CNW_FAN_ECO);
+   set_bool (powerful, packet[CNW_FAN_OFFSET] == CNW_FAN_POWERFUL);
+}
+
 
 // Parse an incoming CN_WIRED packet
 // These packets always have a fixed length of CNW_PKT_LEN
@@ -448,7 +461,6 @@ cn_wired_handle_packet (uint8_t * packet)
    if ((packet[CNW_CRC_TYPE_OFFSET] & CNW_TYPE_MASK) == CNW_MODE_CHANGED)
    {
       int8_t new_mode = cnw_decode_mode(packet);
-      int8_t new_fan = cnw_decode_fan(packet);
 
       set_val (online, 1);
       set_val (power, !(packet[CNW_MODE_OFFSET] & CNW_MODE_POWEROFF));
@@ -456,12 +468,7 @@ cn_wired_handle_packet (uint8_t * packet)
          set_val (mode, new_mode);
       set_val (heat, daikin.mode == FAIKIN_MODE_HEAT);
       set_temp (temp, decode_bcd (packet[CNW_TEMP_OFFSET]));
-      if (new_fan != FAIKIN_FAN_INVALID)
-         set_val (fan, new_fan);
-      // Eco and Powerful are dedicated flags for us, because this is how
-      // other protocols handle it
-      set_bool (econo, packet[CNW_FAN_OFFSET] == CNW_FAN_ECO);
-      set_bool (powerful, packet[CNW_FAN_OFFSET] == CNW_FAN_POWERFUL);
+      cn_wired_report_fan_speed(packet);
       set_bool (swingv, packet[CNW_SWING_OFFSET] & CNW_V_SWING);
    } else {
       // CNW_SENSOR_REPORT
@@ -2290,10 +2297,46 @@ app_main ()
             {
                uint8_t buf[CNW_PKT_LEN];
 
-               if (cn_wired_read_bytes (buf, CNW_READ_TIMEOUT) == 0) {
+               if (cn_wired_read_bytes (buf, CNW_READ_TIMEOUT) == 0)
+               {
                   comm_timeout();
-               } else {
+               }
+               else
+               {
                   cn_wired_handle_packet (buf);
+                  
+                  if (daikin.control_changed)
+                  {
+                     // Send new modes to the AC. We have just received a data packet; CN_WIRED devices
+                     // may dislike being interrupted, so we delay for 20 ms in order for the packet
+                     // trailer pulse (which we ignore) passes
+                     sys_msleep(20);
+
+                     buf[CNW_TEMP_OFFSET]     = encode_bcd(daikin.temp);
+                     buf[1]                   = 0;    // Unused ?
+                     buf[2]                   = 0x23; // No idea what this means; Daichi sends it
+                     buf[CNW_MODE_OFFSET]     = cnw_encode_mode(daikin.mode, daikin.power);
+                     buf[CNW_FAN_OFFSET]      = cnw_encode_fan(daikin.fan, daikin.econo, daikin.powerful);
+                     buf[CNW_SWING_OFFSET]    = daikin.swingv ? CNW_V_SWING : 0;
+                     buf[CNW_CRC_TYPE_OFFSET] = CNW_COMMAND;
+                     buf[CNW_CRC_TYPE_OFFSET] = cnw_checksum(buf);
+
+                     if (debug)
+                     {
+                        jo_t j = jo_comms_alloc ();
+                        jo_base16 (j, "data", buf, CNW_PKT_LEN);
+                        revk_info (daikin.talking ? "tx" : "cannot-tx", &j);
+                     }
+
+                     if (cn_wired_write_bytes(buf)) {
+                        // Modes sent
+                        daikin.control_changed = 0;
+                        // Eco, powerful and other fan speeds are mutually exclusive; and
+                        // since the A/C never reports back its actual modes, we have to
+                        // validate own status ourselves.
+                        cn_wired_report_fan_speed(buf);
+                     }
+                  }
                }
             }
             else if (is_s21 ())

@@ -23,8 +23,11 @@
 #define FAIKIN_FAN_INVALID -1
 
 // Conversion from/to CN_WIRED protocol values
-static inline int8_t cnw_decode_mode(const unsigned char *data) {
-    switch (data[CNW_MODE_OFFSET] & CNW_MODE_MASK) {
+static inline int8_t
+cnw_decode_mode(const unsigned char *data)
+{
+    switch (data[CNW_MODE_OFFSET] & CNW_MODE_MASK)
+    {
     case CNW_DRY:
         return FAIKIN_MODE_DRY;
     case CNW_FAN:
@@ -40,8 +43,11 @@ static inline int8_t cnw_decode_mode(const unsigned char *data) {
     }
 }
 
-static inline int8_t cnw_decode_fan(const unsigned char *data) {
-    switch (data[CNW_FAN_OFFSET]) {
+static inline int8_t
+cnw_decode_fan(const uint8_t *data)
+{
+    switch (data[CNW_FAN_OFFSET])
+    {
     case CNW_FAN_1:
         return FAIKIN_FAN_1;
     case CNW_FAN_2:
@@ -55,6 +61,34 @@ static inline int8_t cnw_decode_fan(const unsigned char *data) {
     default:
         return FAIKIN_FAN_INVALID;
     }
+}
+
+static inline uint8_t
+cnw_encode_mode(uint8_t mode, uint8_t power)
+{
+    static uint8_t table[] = {CNW_FAN, CNW_HEAT, CNW_COOL, CNW_AUTO,
+                              CNW_AUTO, CNW_AUTO, CNW_AUTO, // These are unused
+                              CNW_DRY};
+    uint8_t ret = table[mode];
+
+    return power ? ret : ret & CNW_MODE_POWEROFF;
+}
+
+static inline uint8_t
+cnw_encode_fan(uint8_t fan, uint8_t eco, uint8_t powerful)
+{
+    if (powerful)
+        return CNW_FAN_POWERFUL;
+    else if (eco)
+        return CNW_FAN_ECO;
+    else if (fan == FAIKIN_FAN_AUTO)
+        return CNW_FAN_AUTO;
+    else if (fan > FAIKIN_FAN_3)
+        return CNW_FAN_3;
+    else if (fan > FAIKIN_FAN_1)
+        return CNW_FAN_2;
+    else
+        return CNW_FAN_1;
 }
 
 #endif
