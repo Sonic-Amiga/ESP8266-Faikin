@@ -1470,7 +1470,7 @@ web_root (httpd_req_t * req)
                                 "window.setInterval(c, 1000);"
                              "}"
                              "</script>");
-   return revk_web_foot (req, 0, webcontrol >= 2 ? 1 : 0);
+   return revk_web_foot (req, 0, webcontrol >= 2 ? 1 : 0, protocol_set ? proto_name () : NULL);
 }
 
 static const char *
