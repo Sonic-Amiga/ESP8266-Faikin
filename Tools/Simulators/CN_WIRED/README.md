@@ -32,8 +32,8 @@ preferred, however, because the A/C interface uses 5V levels.
 This protocol has been reverse engineered from FTXB35C2V1B conditioner model and a 3rd party
 ["Daichi DW-22"](https://daichi-aircon.com/product/DW22_B/) cloud-based controller (the web site is in russian).
 
-At the moment the simulator works correctly with the controller; but there are problems sending data
-according to this description to the real conditioner. So there are some details missing. This is a work in progress.
+Protocol implementation in the bridge is to be considered a reference; it has been verified to work with the conditioner,
+as well as with the Daichi controller using a simulator.
 
 ## Physical characteristics.
 
