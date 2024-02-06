@@ -143,7 +143,7 @@ proto_type (void)
 static const char *
 proto_name (void)
 {
-   return prototype[proto_type()];
+   return prototype[proto_type ()];
 }
 
 // 'fanstep' setting overrides number of available fan speeds
@@ -2186,6 +2186,7 @@ app_main ()
    {
       // Web interface
       httpd_config_t config = HTTPD_DEFAULT_CONFIG ();
+      config.stack_size += 2048;        // Being on the safe side
       // When updating the code below, make sure this is enough
       // Note that we're also adding revk's own web config handlers
       config.max_uri_handlers = 13 + revk_num_web_handlers();
@@ -2569,7 +2570,7 @@ app_main ()
             daikin.control_changed = 0; // Give up on changes
             daikin.control_count = 0;
          }
-         revk_blink (0, 0, loopback ? "RGB" : !daikin.online ? "M" : dark ? "" : !daikin.power ? "" : daikin.mode == 0 ? "O" : daikin.mode == 7 ? "C" : daikin.heat ? "R" : "B");       // FHCA456D
+         revk_blink (0, 0, loopback ? "RGB" : !daikin.online ? "M" : dark ? "" : !daikin.power ? "y" : daikin.mode == 0 ? "O" : daikin.mode == 7 ? "C" : daikin.heat ? "R" : "B");    // FHCA456D
          uint32_t now = uptime ();
          // Basic temp tracking
          xSemaphoreTake (daikin.mutex, portMAX_DELAY);
