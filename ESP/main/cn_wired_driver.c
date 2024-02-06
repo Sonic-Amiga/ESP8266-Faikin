@@ -8,6 +8,8 @@
 #include <task.h>
 
 #include <driver/hw_timer.h>
+#include <esp8266/gpio_struct.h>
+#include <esp8266/timer_struct.h>
 #include <rom/gpio.h>
 
 #include "cn_wired.h"
@@ -38,20 +40,46 @@ struct CN_Wired_Receiver {
     TaskHandle_t task;
 };
 
-#define TX_STATE_IDLE  0
-#define TX_STATE_SYNC  1
-#define TX_STATE_DATA  2
-#define TX_STATE_DELAY 3
-#define TX_STATE_END   4
-
 struct CN_Wired_Transmitter {
-    uint8_t    buffer[CNW_PKT_LEN];
-    int        line_state;
-    int        tx_state;
-    int        tx_bytes;
-    int        tx_bits;
-    gpio_num_t pin;
+    uint8_t buffer[CNW_PKT_LEN];
+    int     busy;
+    int     line_state;
+    int     tx_bytes;
+    int     tx_bits;
+    int     next_bit;  // Time of the next bit
+    int     gpio_mask; // Pre-cooked GPIO mask
+    int     t_space;   // Pre-cooked delays in ticks
+    int     t_zero;
+    int     t_one;
 };
+
+// We need to act quickly-quickly-quickly for better timings. Standard drivers
+// does lots of unnecessary stuff (like argument checks), here we're avoiding
+// all that. All the HW-specific values are pre-cooked in our struct, so we're
+// just banging the metal.
+// This code is basically shamelessly stolen from SDK's gpio and hw_timer drivers
+// respectively
+static inline void tx_set_high(const struct CN_Wired_Transmitter* tx)
+{
+    GPIO.out_w1ts |= tx->gpio_mask;
+}
+
+static inline void tx_set_low(const struct CN_Wired_Transmitter* tx)
+{
+    GPIO.out_w1tc |= tx->gpio_mask;
+}
+
+static inline void tx_timer_reload(const struct CN_Wired_Transmitter* tx, uint32_t ticks)
+{
+    portENTER_CRITICAL();
+    frc1.load.data = ticks;
+    frc1.ctrl.en   = 0x01;
+    portEXIT_CRITICAL();
+}
+
+static uint32_t timer_ticks(uint32_t usecs) {
+    return ((TIMER_BASE_CLK >> hw_timer_get_clkdiv()) / 1000000) * usecs;
+}
 
 static struct CN_Wired_Receiver rx_obj;
 static struct CN_Wired_Transmitter tx_obj;
@@ -119,50 +147,40 @@ void tx_interrupt (void* arg)
 {
     struct CN_Wired_Transmitter* tx = arg;
     int new_state = !tx->line_state;
-    int pulse_time;
 
-    // Flip the line and remember new state
-    tx->line_state = new_state;
-    gpio_set_level(tx->pin, new_state);
+    if (!new_state) {
+        // HIGH -> LOW. Space starts
+        tx_timer_reload(tx, tx->t_space);
+        tx_set_low(tx);
+    } else if (tx->next_bit) {
+        // LOW ->HIGH. Bit starts
+        tx_timer_reload(tx, tx->next_bit);
+        tx_set_high(tx);
 
-    if (new_state) {
-        // LOW -> HIGH
-        if (tx->tx_state == TX_STATE_SYNC)
-        {
-            pulse_time = START_LENGTH;
-            tx->tx_state = TX_STATE_DATA;
-        }
-        else if (tx->tx_state == TX_STATE_DATA)
-        {
-            pulse_time = ((tx->buffer[tx->tx_bytes] >> tx->tx_bits) & 1) ? BIT_1_LENGTH : BIT_0_LENGTH;
-            
-            if (tx->tx_bits < 7)
+        // We've set our line and timer, now we have some time for housekeeping.
+        if (tx->tx_bytes == CNW_PKT_LEN) {
+            // The current bit we've just started is the final one, no more data
+            tx->next_bit = 0;
+        } else {
+            // Ticks value for the next bit.
+            tx->next_bit = ((tx->buffer[tx->tx_bytes] >> tx->tx_bits) & 1) ? tx->t_one : tx->t_zero;
+            // Advance bit/byte counters
+            if (tx->tx_bits < 7) {
                 tx->tx_bits++;
-            else if (tx->tx_bytes == CNW_PKT_LEN)
-                tx->tx_state = TX_STATE_DELAY;
-            else {
+            } else {
                 tx->tx_bits = 0;
                 tx->tx_bytes++;
             }
         }
-        else if (tx->tx_state == TX_STATE_DELAY)
-        {
-            pulse_time = END_DELAY;
-            tx->tx_state = TX_STATE_END;
-        }
-        else
-        {
-            // The final transition to idle after END 2ms pulse has been sent.
-            // Do not re-arm the timer
-            tx->tx_state = TX_STATE_IDLE;
-            return;
-        }
     } else {
-        // HIGH -> LOW
-        pulse_time = (tx->tx_state == TX_STATE_DELAY) ? END_LENGTH : SPACE_LENGTH;
+        // LOW->HIGH, no next_bit set. We've just completed our final space and turned idle.
+        // 2ms LOW pulse is not mandatory when sending data to the conditioner, so we avoid
+        // the trouble with pleasure.
+        tx_set_high(tx);
+        tx->busy = 0;
     }
 
-    hw_timer_alarm_us (pulse_time, false);
+    tx->line_state = new_state;
 }
 
 esp_err_t cn_wired_driver_install (gpio_num_t rx, gpio_num_t tx)
@@ -176,8 +194,8 @@ esp_err_t cn_wired_driver_install (gpio_num_t rx, gpio_num_t tx)
 
     xTaskNotifyStateClear(rx_obj.task);
 
-    tx_obj.tx_bytes = CNW_PKT_LEN; // Transmitter idle state
-    tx_obj.pin      = tx;
+    tx_obj.busy     = 0;
+    tx_obj.gpio_mask = 1 << tx;
 
     gpio_pad_select_gpio(rx);
     gpio_pad_select_gpio(tx);
@@ -228,18 +246,28 @@ int cn_wired_read_bytes (uint8_t *buffer, TickType_t timeout)
 
 int cn_wired_write_bytes (const uint8_t *buffer)
 {
-    if (tx_obj.tx_state != TX_STATE_IDLE)
+    if (tx_obj.busy)
         return 0; // Busy, retry plz
 
     memcpy(tx_obj.buffer, buffer, CNW_PKT_LEN);
+    tx_obj.busy       = 1;
     tx_obj.tx_bits    = 0;
     tx_obj.tx_bytes   = 0;
-    tx_obj.tx_state   = TX_STATE_SYNC;
-    tx_obj.line_state = 0;
+    tx_obj.line_state = 0;                         // We start with SYNC low
 
-    // Start of the SYNC low pulse. This will kickstart the transmitter.
-    gpio_set_level (tx_obj.pin, 0);
+    // Use hw_timer_alarm_us() to guarantee that the timer is set up correctly.
+    // This will kickstart the transmitter. When the timer fires, the SYNC pulse
+    // will be over and start bit will be transmitted by our state machine.
     hw_timer_alarm_us (SYNC_LENGTH, false);
+    tx_set_low(&tx_obj);
+
+    // hw_timer_alarm_us() has set up clock divider, so that hw_timer_get_clkdiv()
+    // now returns a proper value. We rely on this behavior in order to pre-cook
+    // bit timings
+    tx_obj.next_bit = timer_ticks(START_LENGTH);
+    tx_obj.t_one    = timer_ticks(BIT_1_LENGTH);
+    tx_obj.t_zero   = timer_ticks(BIT_0_LENGTH);
+    tx_obj.t_space  = timer_ticks(SPACE_LENGTH);
 
     return CNW_PKT_LEN;
 }
