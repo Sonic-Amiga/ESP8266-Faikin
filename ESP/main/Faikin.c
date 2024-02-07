@@ -2322,24 +2322,37 @@ app_main ()
                      // trailer pulse (which we ignore) passes
                      sys_msleep(20);
 
-                     // In these A/Cs Eco and Powerful are also fan speed settings, so a frobbed
-                     // control takes precedence. If none, we assume priorities as follows:
-                     // powerful, eco, explicit fan speed.
-                     // The result is: Faikin remembers last explicit fan speed settings. When both
-                     // Eco and Powerful switches are off, the A/C is reverted to the explicit fan
-                     // speed previously remembered.
-                     if (daikin.control_changed & CONTROL_fan)
+                     // These A/Cs from internal perspective have 6 fan speeds: Eco, Auto, 1, 2, 3, Powerful
+                     // For more advanced A/Cs Eco and Powerful are special modes, they can be combined with fan speed settings,
+                     // so for us these two settings are separate on/off controls. And here are emulating this behavior
+                     // with the following algorithm:
+                     // - If the user enables Powerful, Eco is turned off, fan speed is remembered
+                     // - If the user enables Eco, Powerful is turned off, fan speed is remembered
+                     // - If the user disables Eco or Powerful (only one can be enabled!), fan speed is reset to remembered value
+                     // - If the user selects fan speed, both Powerful and Eco are turned off.
+                     // The first line implement this exact logic. We check which control of the three
+                     // the user has frobbed, and act accordingly
+                     if (daikin.control_changed & CONTROL_fan) {
+                        // The user has touched fan speed control, set the speed
                         new_fan = cnw_encode_fan(daikin.fan);
-                     else if (daikin.control_changed & CONTROL_econo)
+                     } else if (daikin.control_changed & CONTROL_econo) {
+                        // The user has touched Econo switch, act according to new state
                         new_fan = daikin.econo ? CNW_FAN_ECO : cnw_encode_fan(daikin.fan);
-                     else if (daikin.control_changed & CONTROL_powerful)
+                     } else if (daikin.control_changed & CONTROL_powerful) {
+                        // The user has touched Powerful switch, act according to new state
                         new_fan = daikin.powerful ? CNW_FAN_POWERFUL : cnw_encode_fan(daikin.fan);
-                     else if (daikin.powerful)
+                        // If the user hasn't changed anything, we still have to fill in current fan speed.
+                        // This relies on the fact that controls are always in valid state, and only
+                        // one of Powerful or Econo can be active. Even if somehow not true, the order
+                        // of precedence is as coded here. We'll force our controls to a valid state
+                        // by calling cn_wired_report_fan_speed()
+                     } else if (daikin.powerful) {
                         new_fan = CNW_FAN_POWERFUL;
-                     else if (daikin.econo)
+                     } else if (daikin.econo) {
                         new_fan = CNW_FAN_ECO;
-                     else
+                     } else {
                         new_fan = cnw_encode_fan(daikin.fan);
+                     }
 
                      buf[CNW_TEMP_OFFSET]     = encode_bcd(daikin.temp);
                      buf[1]                   = 0;    // Unused ?
@@ -2348,6 +2361,7 @@ app_main ()
                      buf[CNW_FAN_OFFSET]      = new_fan;
                      buf[CNW_SWING_OFFSET]    = daikin.swingv ? CNW_V_SWING : 0;
                      buf[CNW_CRC_TYPE_OFFSET] = CNW_COMMAND;
+                     buf[6]                   = 0; // Unused ?
                      buf[CNW_CRC_TYPE_OFFSET] = cnw_checksum(buf);
 
                      if (debug)
@@ -2360,9 +2374,10 @@ app_main ()
                      if (cn_wired_write_bytes(buf)) {
                         // Modes sent
                         daikin.control_changed = 0;
-                        // Eco, powerful and other fan speeds are mutually exclusive; and
-                        // since the A/C never reports back its actual modes, we have to
-                        // validate own status ourselves.
+                        // This validates fan speed controls by parsing back value
+                        // from the packet we've just composed and sent. We're reusing
+                        // receiving code for simplicity. This implements the second part
+                        // of mutual exclusion logic, described above.
                         cn_wired_report_fan_speed(buf);
                      }
                   }
