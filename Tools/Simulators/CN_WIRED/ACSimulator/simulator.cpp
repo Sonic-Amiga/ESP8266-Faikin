@@ -30,8 +30,8 @@ class Dump {
 static bool dump_all_packets;
 
 // Buffer to read incoming serial data
-static char rx_buffer[50];
-static uint8_t rx_bytes = 0;
+static char rx_buffer[1024];
+static uint16_t rx_bytes = 0;
 
 struct ACState
 {
@@ -130,10 +130,9 @@ void closeSerial(QSerialPort* serial)
 }
 
 // We are receiving ASCII data from our brigde in the form:
-// 0014727640 Rx1 80 23 00 23 12 01 00 10 F0 OK
+// 0014727640 Rx1 23 00 23 12 01 00 10 F0 OK
 // We are only interested in hexadecimal data itself, we'll do all the processing
-// by ourselves. Note also that the first byte here is synthetic. It contains only
-// start bit, which should always be equal to 1, hence 80. We ignore it for simplicity.
+// by ourselves.
 static void handleRxPacket()
 {
     uint8_t binary_pkt[CNW_PKT_LEN];
@@ -145,23 +144,24 @@ static void handleRxPacket()
     const char *startp = strstr(rx_buffer, "Rx1 ");
 
     if (!startp) {
-        std::cout << "Unexpected data received: " << rx_buffer << std::endl;
+        std::cout << "Unexpected data received (no Rx1 prefix): " << rx_buffer << std::endl;
         return;
     }
     if (startp[4] == '_') {
         // "Rx1 _" is a legitimate text, telling that a 2ms pulse has been found.
         return;
     }
-    if (strlen(startp) < 7) {
+    if (strlen(startp) < 5) {
         std::cout << "Unexpected data received (trimmed): " << rx_buffer << std::endl;
         return;
     }
-    if (startp[6] != ' ') {
+    if (!isxdigit(startp[4])) {
         std::cout << "Unexpected data received: " << rx_buffer << std::endl;
         return;
     }
 
-    startp += 7;
+    // Skip over the "Rx1 " prefix
+    startp += 4;
 
     for (int i = 0; i < CNW_PKT_LEN; i++) {
         const char* ptr = &startp[i * 3];

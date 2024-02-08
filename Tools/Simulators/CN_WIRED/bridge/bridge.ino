@@ -5,13 +5,13 @@
 //#define RX2_PIN 3 // PD3
 #define TX_PIN  4 // PD4
 
+// Uncomment this to enable timings dump. Impacts I/O performance.
+//#define DUMP_TIMINGS
+
 // Data packet length
 #define PKT_LEN 8
 // The packet contains a 4-bit checksum in its last byte
 #define CRC_OFFSET PKT_LEN - 1
-// Our RX buffers are prefixed by one byte, where start bit is stored.
-// See start()
-#define RX_LEN PKT_LEN + 1
 
 // Pulse lengths in microseconds
 #define SYNC_LENGTH  2600
@@ -23,6 +23,10 @@
 #define END_LENGTH   2000
 // Detection tolerance
 #define THRESHOLD 200
+
+// We also want to provide raw timings info for calibrating transmitter implementations,
+// so our Receiver stores raw pulse timings, then we decode them using decodeData().
+#define NUM_SAMPLES 3 + PKT_LEN * 16
 
 class Receiver {
   public:
@@ -37,7 +41,7 @@ class Receiver {
     }
 
     void reset() {
-      rx_bytes = -1; // This signals "Wait for sync" state
+      samples = -1; // This signals "Wait for sync" state
     }
 
     bool isBusy() const {
@@ -47,24 +51,19 @@ class Receiver {
     }
 
     bool isReceiving() const {
-      return rx_bytes >= 0 && rx_bytes < RX_LEN;
+      return samples >= 0 && samples < NUM_SAMPLES;
     }
 
     bool isDataReady() const {
-      return rx_bytes == RX_LEN;
+      return samples == NUM_SAMPLES;
     }
 
-    const uint8_t* getBuffer() const {
+    const unsigned long* getBuffer() const {
       return buffer;
     }
 
-    // 0th byte contains start bit
-    const uint8_t* getData() const {
-      return &buffer[1];
-    }
-
     unsigned long getRxTimestamp() const {
-      return last_rx;
+      return packet_start;
     }
 
     bool getAck(unsigned long &timestamp) {
@@ -77,40 +76,21 @@ class Receiver {
       }
     }
 
+    void decodeData(uint8_t *buffer) const;
+
     void onInterrupt();
 
   private:
     void start() {
-      // The packet always starts with a single bit of 1, which is apparently
-      // a start bit, so the 0th byte will contain this single bit. This also lets
-      // us make sure that we're correct, and it's indeed always 1.
-      // The next bit is going to be LSB of 1st byte.
-      rx_bytes  = 0;
-      rx_bits   = 7;
-      buffer[0] = 0;
+      samples = 0;
     }
 
-    void receiveBit(uint8_t v) {
-      buffer[rx_bytes] |= (v << rx_bits);
-
-      if (rx_bits == 7) {
-        rx_bits = 0;
-        rx_bytes++;
-        // Prepare the next byte. We don't check for overflow for speed, that's
-        // why we need one spare trailing byte
-        buffer[rx_bytes] = 0;
-      } else {
-        rx_bits++;
-      }
-    }
-
-    uint8_t       buffer[RX_LEN + 1];
-    unsigned long pulse_start; // Pulse start time
-    unsigned int  state;       // Current line state
-    int           rx_bytes;    // Bytes counter
-    int           rx_bits;     // Bits counter
+    unsigned long buffer[NUM_SAMPLES];
+    unsigned long packet_start; // Packet timestamp
+    unsigned long pulse_start;  // Pulse start time
+    unsigned int  state;        // Current line state
+    int           samples;      // Counter of collected pulses
     volatile bool ack;
-    unsigned long last_rx;     // Timestamp of the received packet
     unsigned long last_ack;    // Timestamp of the last ACK pulse
     const int     pin;
 };
@@ -123,34 +103,54 @@ void Receiver::onInterrupt() {
   }
 
   unsigned long now = micros();
+  unsigned long duration = now - pulse_start;
 
   if (new_state) {
-    // LOW->HIGH, start of data bit
-    unsigned long length = now - pulse_start;
-
-    if (length > SYNC_LENGTH - THRESHOLD) {
+    // LOW => HIGH
+    if (duration > SYNC_LENGTH - THRESHOLD) {
       // Got SYNC pulse, start receiving data
-      last_rx = pulse_start;
+      packet_start = pulse_start;
       start();
-    } else if (length > END_LENGTH - THRESHOLD) {
+    } else if (duration > END_LENGTH - THRESHOLD) {
       // Got ACK pulse
       if (!ack) {
-          last_ack = pulse_start;
-          ack = true;
+        last_ack = pulse_start;
+        ack = true;
       }
     }
-  } else {
-    // HIGH->LOW, start of SYNC or end of data bit
-    if (isReceiving()) {
-      // High bit - 900us, low bit - 400us
-      uint8_t bit = (now - pulse_start) > 700;
-      receiveBit(bit);
-    }
+  }
+
+  if (isReceiving()) {
+    buffer[samples++] = duration;
   }
 
   // A new state has begun at 'now' microseconds
   pulse_start = now;
   state       = new_state;
+}
+
+void Receiver::decodeData(uint8_t *dest) const {
+  int rx_bytes = 0;
+  int rx_bits  = 0;
+
+  dest[0] = 0;
+
+  for (int i = 3; i < NUM_SAMPLES; i += 2) {
+    // High bit - 900us, low bit - 400us
+    uint8_t v = buffer[i] > (BIT_1_LENGTH - THRESHOLD);
+
+    dest[rx_bytes] |= (v << rx_bits);
+
+    if (rx_bits == 7) {
+      rx_bits = 0;
+      rx_bytes++;
+      // Prepare the next byte if present.
+      if (rx_bytes < PKT_LEN)
+        dest[rx_bytes] = 0;
+    } else {
+      rx_bits++;
+    }
+  }
 }
 
 #define SEND_BIT(byte, bit)                                                  \
@@ -264,12 +264,29 @@ static void printTimestamp(unsigned long ts) {
 }
 
 static void dump(const char* prefix, const Receiver& rx) {
-  printTimestamp(rx.getRxTimestamp());
-  // Dump the whole thing, including start bit and CRC
-  dump(prefix, rx.getBuffer(), RX_LEN);
+  unsigned long timestamp = rx.getRxTimestamp();
+  char payload[PKT_LEN];
 
-  const uint8_t* payload = rx.getData();
+  rx.decodeData(payload);
+
+
+#ifdef DUMP_TIMINGS
+  printTimestamp(timestamp);
+  Serial.print(prefix);
+  Serial.print(" T");
+  for (int i = 0; i < NUM_SAMPLES; i++) {
+    Serial.print(' ');
+    Serial.print(rx.getBuffer()[i]);
+  }
+  Serial.println();
+#endif
+  rx.reset();
+
   uint8_t crc = calcCRC(payload);
+
+  printTimestamp(timestamp);
+  // Dump the whole thing, including start bit and CRC
+  dump(prefix, payload, PKT_LEN);
 
   if (crc == payload[CRC_OFFSET]) {
     Serial.println(" OK");
@@ -306,24 +323,9 @@ static int parseHex(const char* txt, const char** endp) {
 static void handleCommand(const char* line) {
   const char *p = line;
   uint8_t hex_buffer[PKT_LEN];
-  int repeat;
 
   // Command line format is:
   // NN NN NN NN NN NN NN NN (hex bytes) - send the data
-  // Rx NN NN NN NN NN NN NN NN - send the data, repeat x times (one digit only)
-  // 
-  if (toupper(p[0]) == 'R') {
-    if (p[1] < '1' || p[1] > '9') {
-      Serial.print("Bad repeat count: ");
-      Serial.println(line);
-      return;
-    }
-    repeat = p[1] - '0';
-    p += 2;
-  } else {
-    repeat = 1; // Send once by default
-  }
-
   for (int i = 0; i < PKT_LEN; i++) {
     // Skip spaces if any
     while (*p == ' ')
@@ -332,7 +334,9 @@ static void handleCommand(const char* line) {
     int byte = parseHex(p, &p);
 
     if (byte == -1) {
-      Serial.print("Bad hex data: ");
+      Serial.print("Bad hex data at ");
+      Serial.print(p - line);
+      Serial.print(": ");
       Serial.println(line);
       return;
     }
@@ -367,7 +371,6 @@ void loop() {
   }
   if (rx1.isDataReady()) {
     dump("Rx1", rx1);
-    rx1.reset();
   }
 #ifdef RX2_PIN
   if (rx2.getAck(ack_ts)) {
@@ -376,7 +379,6 @@ void loop() {
   }
   if (rx2.isDataReady()) {
     dump("Rx2", rx2);
-    rx2.reset();
   }
 #endif
   if (const char *line = termin.getLine()) {
