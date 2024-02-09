@@ -103,14 +103,17 @@ When an original IR remote control is used, conditioner sends  out a "mode chang
 			 0x04 - heat
 			 0x08 - auto
 			 0x10 - power off flag, ORed with current mode.
- - byte[4] - Fan speed, including specials:
+ - byte[4] - Fan speed:
              0x08 - speed 1
              0x04 - speed 2
              0x02 - speed 4
              0x01 - speed "auto"
              0x03 - "powerful" aka "turbo" mode
              0x09 - "quiet" mode
- - byte[5] - Bit 5 contains "vertical swing on" flag, the rest is unknown
+ - byte[5] - Special modes. Logically ORed flags:
+             bit 7 (mask 0x80) - "LED on" flag
+             bit 4 (mask 0x10) - "vertical swing on" flag
+			 Value of the remaining bits is unknown.
  - byte[6] - unknown
  - byte[7] - checksum and packet type indicator
              - High nibble - 4-bit sum of all other nibbles
