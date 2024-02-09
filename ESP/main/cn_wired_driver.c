@@ -258,7 +258,9 @@ int cn_wired_write_bytes (const uint8_t *buffer)
     // Use hw_timer_alarm_us() to guarantee that the timer is set up correctly.
     // This will kickstart the transmitter. When the timer fires, the SYNC pulse
     // will be over and start bit will be transmitted by our state machine.
-    hw_timer_alarm_us (SYNC_LENGTH, false);
+    // Constant of -20 was fine-tuned by trial and error using DUMP_TIMINGS feature
+    // in Arduino bridge
+    hw_timer_alarm_us (SYNC_LENGTH - 20, false);
     tx_set_low(&tx_obj);
 
     // hw_timer_alarm_us() has set up clock divider, so that hw_timer_get_clkdiv()
