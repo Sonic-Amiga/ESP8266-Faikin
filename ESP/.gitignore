@@ -7,3 +7,5 @@ dependencies.lock
 managed_components
 *.bin
 !release/*.bin
+settings.c
+settings.h

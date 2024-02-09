@@ -10,7 +10,7 @@ ifeq ($(wildcard /bin/csh),)
 $(error	Please install /bin/csh or equivalent)
 endif
 
-all:	
+all:	settings.h
 	@echo Make: $(PROJECT_NAME)$(SUFFIX).bin
 	@idf.py build
 	@cp build/$(PROJECT_NAME).bin $(PROJECT_NAME)$(SUFFIX).bin
@@ -19,6 +19,12 @@ all:
 
 issue:
 	./issue.sh
+
+settings.h:     components/ESP32-RevK/revk_settings settings.def components/ESP32-RevK/settings.def
+	components/ESP32-RevK/revk_settings $^
+
+components/ESP32-RevK/revk_settings: components/ESP32-RevK/revk_settings.c
+	make -C components/ESP32-RevK revk_settings
 
 flash:
 	idf.py flash

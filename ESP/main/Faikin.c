@@ -26,76 +26,9 @@ static const char TAG[] = "Faikin";
 
 // Settings (RevK library used by MQTT setting command)
 
-// ESP8266: A single on-module LED on GPIO #2 inverted
-#define	gpio			\
-	led(blink,1,-2)
-
-#define	settings		\
-	u8(webcontrol,2)	\
-	u8(protocol,0)		\
-	bl(debug)		\
-	bl(dump)		\
-	bl(livestatus)		\
-	b(dark,false)		\
-	b(ble,false)		\
-	b(ha,true)		\
-	u8(uart,CONFIG_FAIKIN_AC_UART_NUM)		\
-	u8l(thermref,50)	\
-	u8l(autop10,5)		\
-	u8l(coolover,6)		\
-	u8l(coolback,6)		\
-	u8l(heatover,6)		\
-	u8l(heatback,6)		\
-	u8l(switch10,5)		\
-	u8l(push10,1)		\
-	u16l(auto0,0)		\
-	u16l(auto1,0)		\
-	u16l(autot,0)		\
-	u8l(autor,0)		\
-	bl(autop)		\
-	sl(autob)		\
-	u8(tmin,16)		\
-	u8(tmax,32)		\
-	u32(tpredicts,30)	\
-	u32(tpredictt,120)	\
-	u32(tsample,900)	\
-	u32(tcontrol,600)	\
-	u8(fanstep,0)		\
-	u32(reporting,60)	\
-	gpio			\
-
 #define UART_NONE 0xFF
 
-#define u32(n,d) uint32_t n;
-#define s8(n,d) int8_t n;
-#define u8(n,d) uint8_t n;
-#define u8l(n,d) uint8_t n;
-#define u16l(n,d) uint16_t n;
-#define b(n,d) uint8_t n;
-#define bl(n) uint8_t n;
-#define s(n) char * n;
-#define sl(n) char * n;
-#define io(n,d)           uint8_t n;
-#ifdef  CONFIG_REVK_BLINK
-#define led(n,a,d)      extern uint8_t n[a];
-#else
-#define led(n,a,d)      uint8_t n[a];
-#endif
-settings
-#undef io
-#undef led
-#undef u32
-#undef s8
-#undef u8
-#undef u8l
-#undef u16l
-#undef b
-#undef bl
-#undef s
-#undef sl
-#define PORT_INV 0x40
-#define port_mask(p) ((p)&0x3F)
-   enum
+enum
 {                               // Number the control fields
 #define	b(name)		CONTROL_##name##_pos,
 #define	t(name)		b(name)
@@ -2151,34 +2084,6 @@ app_main ()
 #define	r(name)	daikin.min##name=NAN;daikin.max##name=NAN;
 #include "acextras.m"
    revk_boot (&mqtt_client_callback);
-#define str(x) #x
-#define io(n,d)           revk_register(#n,0,sizeof(n),&n,"- "str(d),SETTING_SET|SETTING_BITFIELD);
-#ifndef CONFIG_REVK_BLINK
-#define led(n,a,d)      revk_register(#n,a,sizeof(*n),&n,"- "str(d),SETTING_SET|SETTING_BITFIELD|SETTING_FIX);
-#else
-#define	led(n,a,d)
-#endif
-#define b(n,d) revk_register(#n,0,sizeof(n),&n,str(d),SETTING_BOOLEAN);
-#define bl(n) revk_register(#n,0,sizeof(n),&n,NULL,SETTING_BOOLEAN|SETTING_LIVE);
-#define u32(n,d) revk_register(#n,0,sizeof(n),&n,str(d),0);
-#define s8(n,d) revk_register(#n,0,sizeof(n),&n,str(d),SETTING_SIGNED);
-#define u8(n,d) revk_register(#n,0,sizeof(n),&n,str(d),0);
-#define u8l(n,d) revk_register(#n,0,sizeof(n),&n,str(d),SETTING_LIVE);
-#define u16l(n,d) revk_register(#n,0,sizeof(n),&n,str(d),SETTING_LIVE);
-#define s(n) revk_register(#n,0,0,&n,NULL,0);
-#define sl(n) revk_register(#n,0,0,&n,NULL,SETTING_LIVE);
-   settings
-#undef led
-#undef io
-#undef u32
-#undef s8
-#undef u8
-#undef u8l
-#undef u16l
-#undef b
-#undef bl
-#undef s
-#undef sl
    revk_start ();
    revk_blink (0, 0, "");
 
@@ -2443,13 +2348,12 @@ app_main ()
                }
                if (*debugsend)
                {
-                  if (!dump)
-                     dump = 2;  // Debug anyway
+                  uint8_t preserved = dump;
+                  dump = 1;  // Debug anyway
                   if (debugsend[1])
                      daikin_s21_command (debugsend[0], debugsend[1], strlen (debugsend + 2), debugsend + 2);
                   *debugsend = 0;
-                  if (dump == 2)
-                     dump = 0;
+                  dump = preserved;
                }
 #undef poll
                if (debug)
@@ -2600,12 +2504,12 @@ app_main ()
          {
             if (hot)
             {
-               max += switch10 / 10.0;  // Overshoot for switching (heating)
-               min += push10 / 10.0;    // Adjust target
+               max += (float) switchtemp / switchtemp_scale;    // Overshoot for switching (heating)
+               min += (float) pushtemp / pushtemp_scale;        // Adjust target
             } else
             {
-               min -= switch10 / 10.0;  // Overshoot for switching (cooling)
-               max -= push10 / 10.0;    // Adjust target
+               min -= (float) switchtemp / switchtemp_scale;    // Overshoot for switching (cooling)
+               max -= (float) pushtemp / pushtemp_scale;        // Adjust target
             }
          }
          void samplestart (void)
@@ -2627,10 +2531,12 @@ app_main ()
                hot = 1;
                daikin_set_e (mode, "H");        // Set heating as under temp
             }
-            if (daikin.fan && ((hot && current < min - 2 * switch10 * 0.1) || (!hot && current > max + 2 * switch10 * 0.1)))
+            if (daikin.fan
+                && ((hot && current < min - 2 * (float) switchtemp / switchtemp_scale)
+                    || (!hot && current > max + 2 * (float) switchtemp / switchtemp_scale)))
             {                   // Not in auto mode, and not close to target temp - force a high fan to get there
                daikin.fansaved = daikin.fan;    // Save for when we get to temp
-               daikin_set_v (fan, 5);   // Max fan at start
+               daikin_set_v (fan, fmaxauto);   // Max fan at start
             }
          }
          void controlstop (void)
@@ -2721,15 +2627,16 @@ app_main ()
                      {
                         jo_int (j, "set-fan", daikin.fan + step);
                         daikin_set_v (fan, daikin.fan + step);  // Increase fan
-                     } else if ((autop || (daikin.remote && autop10)) && !a && !b)
+                     } else if ((autop || (daikin.remote && autoptemp)) && !a && !b)
                      {          // Auto off
                         jo_bool (j, "set-power", 0);
                         daikin_set_v (power, 0);        // Turn off as 100% in band for last two period
                      }
                   } else
-                     if ((autop || (daikin.remote && autop10))
+                     if ((autop || (daikin.remote && autoptemp))
                          && (daikin.counta == daikin.countt || daikin.countb == daikin.countt)
-                         && (current >= max + autop10 / 10.0 || current <= min - autop10 / 10.0))
+                         && (current >= max + (float) autoptemp / autoptemp_scale
+                             || current <= min - (float) autoptemp / autoptemp_scale) && (!lockmode || b != t))
                   {             // Auto on
                      jo_bool (j, "set-power", 1);
                      daikin_set_v (power, 1);   // Turn on as 100% out of band for last two period
