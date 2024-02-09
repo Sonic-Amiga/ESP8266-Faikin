@@ -7,10 +7,7 @@ if [ -n "$CHECK" ]; then
 	exit 255
 fi
 
-git pull
-git submodule update --recursive
-git commit -a -m checkpoint
-@make
-cp $(PROJECT_NAME)*.bin release
+make
+cp Faikin-*.bin release
 git commit -a -m release
 git push
