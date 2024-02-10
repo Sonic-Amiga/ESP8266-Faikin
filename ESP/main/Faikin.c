@@ -88,6 +88,16 @@ have_5_fan_speeds (void)
    return fanstep == 1 || (!fanstep && proto_type () == PROTO_TYPE_S21);
 }
 
+static int
+ble_sensor_connected (void)
+{
+#ifdef ELA
+   return ble && *autob;
+#else
+   return 0;
+#endif
+}
+
 void
 protocol_found (void)
 {
@@ -852,6 +862,54 @@ daikin_command (uint8_t cmd, int txlen, uint8_t * payload)
    daikin_response (cmd, rxlen - 6, buf + 5);
 }
 
+// The following two functions are reused also for parsing control requests
+// from the web interface in ESP8266 port. ESP8266 has no websocket support.
+static jo_t
+auto_mode_control_item(const char *tag, const char *val, jo_t s)
+{
+   if (!strcmp (tag, "auto0") || !strcmp (tag, "auto1"))
+   {                         // Stored settings
+      if (strlen (val) >= 5)
+      {
+         if (!s)
+            s = jo_object_alloc ();
+         jo_int (s, tag, atoi (val) * 100 + atoi (val + 3));
+      }
+   }
+   if (!strcmp (tag, "autop"))
+   {
+      if (!s)
+         s = jo_object_alloc ();
+      jo_bool (s, tag, *val == 't');
+   }
+   if (!strcmp (tag, "autot") || !strcmp (tag, "autor"))
+   {                         // Stored settings
+      if (!s)
+         s = jo_object_alloc ();
+      jo_int (s, tag, lroundf (strtof (val, NULL) * 10.0));
+      daikin.status_changed = 1;
+   }
+#ifdef ELA
+   if (!strcmp (tag, "autob"))
+   {                         // Stored settings
+      if (!s)
+         s = jo_object_alloc ();
+      jo_string (s, tag, val);       // Set BLE value
+   }
+#endif
+   return s;
+}
+
+static void
+save_settings_if_changed (jo_t s)
+{
+   if (s)
+   {
+      revk_setting (s);
+      jo_free (&s);
+   }
+}
+
 // Parse control JSON, arrived by MQTT, and apply values
 const char *
 daikin_control (jo_t j)
@@ -871,49 +929,19 @@ daikin_control (jo_t j)
 #define	i(name)		if(!strcmp(tag,#name)&&t==JO_NUMBER)err=daikin_set_i(name,atoi(val));
 #define	e(name,values)	if(!strcmp(tag,#name)&&t==JO_STRING)err=daikin_set_e(name,val);
 #include "accontrols.m"
-      if (!strcmp (tag, "auto0") || !strcmp (tag, "auto1"))
-      {                         // Stored settings
-         if (strlen (val) >= 5)
-         {
-            if (!s)
-               s = jo_object_alloc ();
-            jo_int (s, tag, atoi (val) * 100 + atoi (val + 3));
-         }
-      }
-      if (!strcmp (tag, "autop"))
-      {
-         if (!s)
-            s = jo_object_alloc ();
-         jo_bool (s, tag, *val == 't');
-      }
-      if (!strcmp (tag, "autot") || !strcmp (tag, "autor"))
-      {                         // Stored settings
-         if (!s)
-            s = jo_object_alloc ();
-         jo_int (s, tag, lroundf (strtof (val, NULL) * 10.0));
-         daikin.status_changed = 1;
-      }
-      if (!strcmp (tag, "autob"))
-      {                         // Stored settings
-         if (!s)
-            s = jo_object_alloc ();
-         jo_string (s, tag, val);       // Set BLE value
-      }
       if (err)
       {                         // Error report
          jo_t j = jo_object_alloc ();
          jo_string (j, "field", tag);
          jo_string (j, "error", err);
          revk_error ("control", &j);
+         jo_free (&s);
          return err;
       }
+      s = auto_mode_control_item (tag, val, s);
       t = jo_skip (j);
    }
-   if (s)
-   {
-      revk_setting (s);
-      jo_free (&s);
-   }
+   save_settings_if_changed (s);
    return "";
 }
 
@@ -1260,8 +1288,7 @@ web_root (httpd_req_t * req)
    httpd_resp_sendstr_chunk (req, "<p id=control style='display:none'>✷ Automatic control means some functions are limited.</p>");
    httpd_resp_sendstr_chunk (req,
                              "<p id=antifreeze style='display:none'>❄ System is in anti-freeze now, so cooling is suspended.</p>");
-#ifdef ELA
-   if (autor || (ble && *autob) || (!nofaikinauto && !daikin.remote))
+   if (autor || ble_sensor_connected () || (!nofaikinauto && !daikin.remote))
    {
       void addnote (const char *note)
       {
@@ -1291,6 +1318,7 @@ web_root (httpd_req_t * req)
       addtime ("Off", "auto0");
       addb ("Auto", "autop");
       httpd_resp_sendstr_chunk (req, "</tr>");
+#ifdef ELA
       if (ble)
       {
          addnote ("External temperature reference for Faikin-auto mode");
@@ -1330,9 +1358,9 @@ web_root (httpd_req_t * req)
             httpd_resp_sendstr_chunk (req, " (reload to refresh list)");
          httpd_resp_sendstr_chunk (req, "</td></tr>");
       }
+#endif
       httpd_resp_sendstr_chunk (req, "</table></div>");
    }
-#endif
    // ESP8266: No websockets
    revk_web_send (req, "</form>"        //
                   "</div>"      //
@@ -1479,6 +1507,36 @@ web_status (httpd_req_t * req)
    return ESP_OK;
 }
 
+static void
+store_result(char * dest, size_t dest_size, const char * src, const char * end)
+{
+   size_t len = end - src;
+   if (dest_size < len)
+      len = dest_size;
+   strncpy(dest, src, len);
+}
+
+static esp_err_t
+query_scan_key_value (const char **query, char *key, size_t key_size, char *val, size_t val_size)
+{
+   const char *qry_str = *query;
+
+   if (!*qry_str)
+      return ESP_ERR_NOT_FOUND;
+   const char *val_ptr = strchr(qry_str, '=');
+   if (!val_ptr)
+      return ESP_ERR_HTTPD_INVALID_REQ;
+   store_result (key, key_size, qry_str, val_ptr++);
+   const char *next_ptr = strchr(val_ptr, '&');
+   if (!next_ptr)
+      next_ptr = val_ptr + strlen(val_ptr);
+   store_result (val, val_size, val_ptr, next_ptr);
+   if (*next_ptr == '&')
+      next_ptr++;
+   *query = next_ptr;
+   return ESP_OK;
+}
+
 static esp_err_t
 web_control (httpd_req_t * req)
 {
@@ -1487,12 +1545,27 @@ web_control (httpd_req_t * req)
 
    if (!err)
    {
-      char value[10];
-#define	b(name)        if(!httpd_query_key_value (query, #name, value, sizeof (value)) && *value) daikin_set_v_e(err,name,!strcmp(value,"true"));
-#define	t(name)		   if(!httpd_query_key_value (query, #name, value, sizeof (value)) && *value) daikin_set_t_e(err,name,strtof(value, NULL));
-#define	i(name)		   if(!httpd_query_key_value (query, #name, value, sizeof (value)) && *value) daikin_set_i_e(err,name,atoi(value));
-#define	e(name,values)	if(!httpd_query_key_value (query, #name, value, sizeof (value)) && *value) daikin_set_e_e(err,name,value);
+      jo_t s = NULL;
+      const char *q = query;
+      char tag[20],
+         val[20];
+
+      while (!query_scan_key_value (&q, tag, sizeof(tag), val, sizeof(val)))
+      {
+#define	b(name)		if(!strcmp(tag,#name))err=daikin_set_v(name,!strcmp(val,"true"));
+#define	t(name)		if(!strcmp(tag,#name))err=daikin_set_t(name,strtof(val,NULL));
+#define	i(name)		if(!strcmp(tag,#name))err=daikin_set_i(name,atoi(val));
+#define	e(name,values)	if(!strcmp(tag,#name))err=daikin_set_e(name,val);
 #include "accontrols.m"
+         if (err)
+         {
+            jo_free (&s);
+            break;
+         }
+         s = auto_mode_control_item (tag, val, s);
+      }
+      if (!err)
+         save_settings_if_changed (s);
    }
 
    simple_response(req, err);
@@ -2162,7 +2235,7 @@ app_main ()
             usleep (1000000LL - (esp_timer_get_time () % 1000000LL));
          }
 #ifdef ELA
-         if (ble && *autob)
+         if (ble_sensor_connected ())
          {                      // Automatic external temperature logic - only really useful if autor/autot set
             bleenv_expire (60);
             if (!bletemp || strcmp (bletemp->name, autob))
