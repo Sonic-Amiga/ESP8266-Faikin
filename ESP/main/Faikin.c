@@ -1543,9 +1543,10 @@ static void
 store_result(char * dest, size_t dest_size, const char * src, const char * end)
 {
    size_t len = end - src;
-   if (dest_size < len)
-      len = dest_size;
+   if (dest_size - 1 < len)
+      len = dest_size - 1;
    strncpy(dest, src, len);
+   dest[len] = 0;
 }
 
 static esp_err_t
