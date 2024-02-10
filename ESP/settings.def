@@ -30,8 +30,6 @@ u8	protocol								// Protocol
 
 u32	reporting	60							// Status report period
 
-u8	uart		1		.fix=1
-
 u8	thermref	50		.live=1					// Percentage inlet rather than home temp used by your aircon
 u8	autoptemp	0.5		.live=1	.decimal=1	.old="autop10"	// Auto power on/off by temperature deviation by this amount
 u8	switchtemp	0.5		.live=1	.decimal=1	.old="switch10"	// Increase max (heating) or decrease min (cooling)

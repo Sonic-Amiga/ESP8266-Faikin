@@ -28,6 +28,8 @@ static const char TAG[] = "Faikin";
 
 #define UART_NONE 0xFF
 
+const uint8_t uart = CONFIG_FAIKIN_AC_UART_NUM;
+
 enum
 {                               // Number the control fields
 #define	b(name)		CONTROL_##name##_pos,
@@ -367,7 +369,7 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
          }
          break;
       case '5':                // 'G5' - swing status
-         if (check_length(cmd, cmd2, len, 1, payload))
+         if (check_length (cmd, cmd2, len, 1, payload))
          {
             if (!noswingw)
                set_val (swingv, (payload[0] & 1) ? 1 : 0);
@@ -376,7 +378,7 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
          }
          break;
       case '6':                // 'G6' - "powerful" mode
-         if (check_length(cmd, cmd2, len, 1, payload))
+         if (check_length (cmd, cmd2, len, 1, payload))
          {
             set_bool (powerful, payload[0] == '2');
          }
