@@ -450,8 +450,10 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
       case '5':                // 'G5' - swing status
          if (check_length(cmd, cmd2, len, 1, payload))
          {
-            set_bool (swingv, payload[0] & 1);
-            set_bool (swingh, payload[0] & 2);
+            if (!noswingw)
+               set_val (swingv, (payload[0] & 1) ? 1 : 0);
+            if (!noswingh)
+               set_val (swingh, (payload[0] & 2) ? 1 : 0);
          }
          break;
       case '6':                // 'G6' - "powerful" mode
@@ -1141,11 +1143,7 @@ web_icon (httpd_req_t * req)
 static esp_err_t
 web_root (httpd_req_t * req)
 {
-   // TODO cookies
-   // webcontrol=0 means no web
-   // webcontrol=1 means user settings, not wifi settings
-   // webcontrol=2 means all
-   if (revk_link_down () && webcontrol >= 2)
+   if ((!webcontrol || revk_link_down ()) && websettings)
       return revk_web_settings (req);   // Direct to web set up
    web_head (req, hostname == revk_id ? appname : hostname);
    httpd_resp_sendstr_chunk (req, "<div id=top class=off><form name=F><table id=live>");
@@ -1263,7 +1261,7 @@ web_root (httpd_req_t * req)
    httpd_resp_sendstr_chunk (req,
                              "<p id=antifreeze style='display:none'>❄ System is in anti-freeze now, so cooling is suspended.</p>");
 #ifdef ELA
-   if (autor || *autob || !daikin.remote)
+   if (autor || (ble && *autob) || (!nofaikinauto && !daikin.remote))
    {
       void addnote (const char *note)
       {
@@ -1284,7 +1282,8 @@ web_root (httpd_req_t * req)
       }
       httpd_resp_sendstr_chunk (req,
                                 "<div id=remote><hr><p>Faikin-auto mode (sets hot/cold and temp high/low to aim for the following target), and timed and auto power on/off.</p><table>");
-      add ("Enable", "autor", "Off", "0", "±½℃", "0.5", "±1℃", "1", "±2℃", "2", NULL);
+      add ("Enable", "autor", "Off", "0", fahrenheit ? "±0.9℉" : "±½℃", "0.5", fahrenheit ? "±1.8℉" : "±1℃", "1",
+           fahrenheit ? "±3.6℉" : "±2℃", "2", NULL);
       addtemp ("Target", "autot");
       addnote ("Timed on and off (set other that 00:00)<br>Automated on/off if temp is way off target.");
       httpd_resp_sendstr_chunk (req, "<tr>");
@@ -1334,76 +1333,79 @@ web_root (httpd_req_t * req)
       httpd_resp_sendstr_chunk (req, "</table></div>");
    }
 #endif
-   httpd_resp_sendstr_chunk (req, "</form>");
-   httpd_resp_sendstr_chunk (req, "</div>");
-   httpd_resp_sendstr_chunk (req, "<script>"    //
-                             "function g(n){return document.getElementById(n);};"       //
-                             "function b(n,v){var d=g(n);if(d)d.checked=v;}"    //
-                             "function h(n,v){var d=g(n);if(d)d.style.display=v?'block':'none';}"       //
-                             "function s(n,v){var d=g(n);if(d)d.textContent=v;}"        //
-                             "function n(n,v){var d=g(n);if(d)d.value=v;}"      //
-                             "function e(n,v){var d=g(n+v);if(d)d.checked=true;}"       //
-                             "function w(n,v){"
-                                "xhttp = new XMLHttpRequest();"
-                                "xhttp.open('GET', '/control?' + n + '=' + v, true);"
-                                "xhttp.send();"
-                             "}"
-                             "function decode(rt)"
-                             "{"
-                             "g('top').className='on';"
-	                         "o=JSON.parse(rt);"
-                             "b('power',o.power);"      //
-                             "h('offline',!o.online);"  //
-                             "h('loopback',o.loopback);"        //
-                             "h('control',o.control);"  //
-                             "h('slave',o.slave);"      //
-                             "h('remote',!o.remote);"   //
-                             "b('swingh',o.swingh);"    //
-                             "b('swingv',o.swingv);"    //
-                             "b('econo',o.econo);"      //
-                             "b('powerful',o.powerful);"
-                             "e('mode',o.mode);"        //
-                             "s('Temp',(o.home?o.home+'℃':'---')+(o.env?' / '+o.env+'℃':''));"      //
-                             "n('temp',o.temp);"        //
-                             "s('Ttemp',(o.temp?o.temp+'℃':'---')+(o.control?'✷':''));"     //
-                             "b('autop',o.autop);"      //
-                             "n('autot',o.autot);"      //
-                             "e('autor',o.autor);"      //
-                             "n('autob',o.autob);"      //
-                             "n('auto0',o.auto0);"      //
-                             "n('auto1',o.auto1);"      //
-                             "s('Tautot',(o.autot?o.autot+'℃':''));"  //
-                             "s('Coil',(o.liquid?o.liquid+'℃':'---'));"       //
-                             "s('0/1',(o.slave?'❋':'')+(o.antifreeze?'❄':''));"     //
-                             "s('Fan',(o.fanrpm?o.fanrpm+'RPM':'')+(o.antifreeze?'❄':'')+(o.control?'✷':''));"      //
-                             "e('fan',o.fan);"  //
-                             "if(o.shutdown){"
-                                 "s('shutdown','Restarting: '+o.shutdown);"
-                                 "h('shutdown',true);"
-                             "} else h('shutdown',false);"
-                             "}"
-                             "function c()"
-                             "{"    //
-                                "xhttp = new XMLHttpRequest();"
-	                             "xhttp.onreadystatechange = function()"
-                                "{"
-                                   "if (this.readyState == 4) {"
-                                      "if (this.status == 200)"
-                                         "decode(this.responseText);"
-                                      "else "
-		                                   "g('top').className='off'"
-                                   "}"
-                                "};"
-                                "xhttp.open('GET', '/status', true);"
-                                "xhttp.send();"
-                             "}"
-                             "function handleLoad()"
-                             "{"
-                                "c();"
-                                "window.setInterval(c, 1000);"
-                             "}"
-                             "</script>");
-   return revk_web_foot (req, 0, webcontrol >= 2 ? 1 : 0, protocol_set ? proto_name () : NULL);
+   // ESP8266: No websockets
+   revk_web_send (req, "</form>"        //
+                  "</div>"      //
+                  "<script>"    //
+                  "function cf(v){return %s;}"  //
+                  "function g(n){return document.getElementById(n);};"       //
+                  "function b(n,v){var d=g(n);if(d)d.checked=v;}"    //
+                  "function h(n,v){var d=g(n);if(d)d.style.display=v?'block':'none';}"       //
+                  "function s(n,v){var d=g(n);if(d)d.textContent=v;}"        //
+                  "function n(n,v){var d=g(n);if(d)d.value=v;}"      //
+                  "function e(n,v){var d=g(n+v);if(d)d.checked=true;}"       //
+                  "function w(n,v){"
+                     "xhttp = new XMLHttpRequest();"
+                     "xhttp.open('GET', '/control?' + n + '=' + v, true);"
+                     "xhttp.send();"
+                  "}"
+                  "function t(n,v){s(n,v!=undefined?cf(v):'---');}"     //
+                  "function decode(rt)"
+                  "{"
+                  "g('top').className='on';"
+                  "o=JSON.parse(rt);"
+                  "b('power',o.power);"      //
+                  "h('offline',!o.online);"  //
+                  "h('loopback',o.loopback);"        //
+                  "h('control',o.control);"  //
+                  "h('slave',o.slave);"      //
+                  "h('remote',!o.remote);"   //
+                  "b('swingh',o.swingh);"    //
+                  "b('swingv',o.swingv);"    //
+                  "b('econo',o.econo);"      //
+                  "b('powerful',o.powerful);"
+                  "e('mode',o.mode);"        //
+                  "s('Temp',(o.home?cf(o.home):'---')+(o.env?' / '+cf(o.env):''));"      //
+                  "n('temp',o.temp);"        //
+                  "s('Ttemp',(o.temp?cf(o.temp):'---')+(o.control?'✷':''));"     //
+                  "b('autop',o.autop);"      //
+                  "n('autot',o.autot);"      //
+                  "e('autor',o.autor);"      //
+                  "n('autob',o.autob);"      //
+                  "n('auto0',o.auto0);"      //
+                  "n('auto1',o.auto1);"      //
+                  "s('Tautot',(o.autot?cf(o.autot):''));"  //
+                  "t('Coil',o.liquid);"       //
+                  "s('0/1',(o.slave?'❋':'')+(o.antifreeze?'❄':''));"     //
+                  "s('Fan',(o.fanrpm?o.fanrpm+'RPM':'')+(o.antifreeze?'❄':'')+(o.control?'✷':''));"      //
+                  "e('fan',o.fan);"  //
+                  "if(o.shutdown){"
+                     "s('shutdown','Restarting: '+o.shutdown);"
+                     "h('shutdown',true);"
+                  "} else h('shutdown',false);"
+                  "}"
+                  "function c()"
+                  "{"    //
+                     "xhttp = new XMLHttpRequest();"
+                     "xhttp.onreadystatechange = function()"
+                     "{"
+                        "if (this.readyState == 4) {"
+                           "if (this.status == 200)"
+                              "decode(this.responseText);"
+                           "else "
+                              "g('top').className='off'"
+                        "}"
+                     "};"
+                     "xhttp.open('GET', '/status', true);"
+                     "xhttp.send();"
+                  "}"
+                  "function handleLoad()"
+                  "{"
+                     "c();"
+                     "window.setInterval(c, 1000);"
+                  "}"
+                  "</script>", fahrenheit ? "Math.round(10*((v*9/5)+32))/10+'℉'" : "v+'℃'");
+   return revk_web_foot (req, 0, websettings, protocol_set ? proto_name () : NULL);
 }
 
 static const char *
@@ -1501,7 +1503,7 @@ web_control (httpd_req_t * req)
 // with original Daikin BRP series online controllers.
 
 static esp_err_t
-web_get_basic_info (httpd_req_t * req)
+legacy_web_get_basic_info (httpd_req_t * req)
 {
    // Full string from my BRP module:
    // ret=OK,type=aircon,reg=eu,dst=0,ver=3_3_9,pow=0,err=0,location=0,name=%4c%69%76%69%6e%67%20%72%6f%6f%6d,
@@ -1513,7 +1515,7 @@ web_get_basic_info (httpd_req_t * req)
 
    // Report something. In fact OpenHAB only uses this URL for discovery,
    // and only checks for ret=OK.
-   o += sprintf (o, "ret=OK,type=aircon,reg=eu");
+   o += sprintf (o, "ret=OK,type=aircon,reg=%s", region);
    o += sprintf (o, ",mac=%02X%02X%02X%02X%02X%02X", revk_mac[0], revk_mac[1], revk_mac[2], revk_mac[3], revk_mac[4], revk_mac[5]);
    o += sprintf (o, ",ssid1=%s", revk_wifi ());
 
@@ -1526,12 +1528,12 @@ brp_mode ()
 {
    // Mapped from FHCA456D. Verified against original BRP069A41 controller,
    // which uses 7 for 'Auto'. This may vary across different controller
-   // versions, see a comment in web_set_control_info()
+   // versions, see a comment in legacy_web_set_control_info()
    return "64370002"[daikin.mode];
 }
 
 static esp_err_t
-web_get_model_info (httpd_req_t * req)
+legacy_web_get_model_info (httpd_req_t * req)
 {
    httpd_resp_set_type (req, "text/plain");
    char resp[1000],
@@ -1543,7 +1545,7 @@ web_get_model_info (httpd_req_t * req)
 }
 
 static esp_err_t
-web_get_control_info (httpd_req_t * req)
+legacy_web_get_control_info (httpd_req_t * req)
 {
    httpd_resp_set_type (req, "text/plain");
    char resp[1000],
@@ -1585,7 +1587,7 @@ web_get_control_info (httpd_req_t * req)
 }
 
 static esp_err_t
-web_set_control_info (httpd_req_t * req)
+legacy_web_set_control_info (httpd_req_t * req)
 {
    char query[1000];
    const char *err = get_query (req, query, sizeof (query));
@@ -1645,7 +1647,7 @@ web_set_control_info (httpd_req_t * req)
 }
 
 static esp_err_t
-web_get_sensor_info (httpd_req_t * req)
+legacy_web_get_sensor_info (httpd_req_t * req)
 {
    // ret=OK,htemp=23.0,hhum=-,otemp=17.0,err=0,cmpfreq=0
    httpd_resp_set_type (req, "text/plain");
@@ -1672,7 +1674,7 @@ web_get_sensor_info (httpd_req_t * req)
 }
 
 static esp_err_t
-web_register_terminal (httpd_req_t * req)
+legacy_web_register_terminal (httpd_req_t * req)
 {
    // This is called with "?key=<security_key>" parameter if any other URL
    // responds with 403. It's supposed that we remember our client and enable access.
@@ -1689,7 +1691,7 @@ web_register_terminal (httpd_req_t * req)
 }
 
 static esp_err_t
-web_get_year_power (httpd_req_t * req)
+legacy_web_get_year_power (httpd_req_t * req)
 {
    // ret=OK,curr_year_heat=0/0/0/0/0/0/0/0/0/0/0/0,prev_year_heat=0/0/0/0/0/0/0/0/0/0/0/0,curr_year_cool=0/0/0/0/0/0/0/0/0/0/0/0,prev_year_cool=0/0/0/0/0/0/0/0/0/0/0/0
    httpd_resp_set_type (req, "text/plain");
@@ -1706,7 +1708,7 @@ web_get_year_power (httpd_req_t * req)
 }
 
 static esp_err_t
-web_get_week_power (httpd_req_t * req)
+legacy_web_get_week_power (httpd_req_t * req)
 {
    // ret=OK,s_dayw=2,week_heat=0/0/0/0/0/0/0/0/0/0/0/0/0/0,week_cool=0/0/0/0/0/0/0/0/0/0/0/0/0/0
    httpd_resp_set_type (req, "text/plain");
@@ -1723,7 +1725,7 @@ web_get_week_power (httpd_req_t * req)
 }
 
 static esp_err_t
-web_set_special_mode (httpd_req_t * req)
+legacy_web_set_special_mode (httpd_req_t * req)
 {
    char query[200];
    const char *err = get_query (req, query, sizeof (query));
@@ -2036,41 +2038,16 @@ register_get_uri (const char *uri, esp_err_t (*handler) (httpd_req_t * r))
 void
 revk_web_extra (httpd_req_t * req)
 {
-   void b (const char *tag, const char *field, int value, const char *desc)
+   revk_web_setting (req, "Fahrenheit", "fahrenheit");
+   revk_web_setting (req, "Home Assistant", "ha");
+   revk_web_setting (req, "Dark mode LED", "dark");
+   if (!daikin.remote)
    {
-      httpd_resp_sendstr_chunk (req, "<tr><td>");
-      httpd_resp_sendstr_chunk (req, tag);
-      httpd_resp_sendstr_chunk (req, "</td><td>");
-      void io (const char *v, const char *t)
-      {
-         httpd_resp_sendstr_chunk (req, "<label for=");
-         httpd_resp_sendstr_chunk (req, field);
-         httpd_resp_sendstr_chunk (req, v);
-         httpd_resp_sendstr_chunk (req, "><input type=radio value=");
-         httpd_resp_sendstr_chunk (req, v);
-         httpd_resp_sendstr_chunk (req, " id=");
-         httpd_resp_sendstr_chunk (req, field);
-         httpd_resp_sendstr_chunk (req, v);
-         httpd_resp_sendstr_chunk (req, " name=");
-         httpd_resp_sendstr_chunk (req, field);
-         if (value == atoi (v))
-            httpd_resp_sendstr_chunk (req, " checked");
-         httpd_resp_sendstr_chunk (req, ">");
-         httpd_resp_sendstr_chunk (req, t);
-         httpd_resp_sendstr_chunk (req, "</label> ");
-      }
-      io ("0", "Off");
-      io ("1", "On");
-      if (desc && *desc)
-      {
-         httpd_resp_sendstr_chunk (req, "</td><td>");
-         httpd_resp_sendstr_chunk (req, desc);
-      }
-      httpd_resp_sendstr_chunk (req, "</td></tr>");
+      revk_web_setting (req, "No Faikin auto mode", "nofaikinauto");
+      if (!nofaikinauto)
+         revk_web_setting (req, "BLE Sensors", "ble");
    }
-   b ("Home Assistant", "ha", ha, "Announces HA config via MQTT");
-   b ("BLE Sensors", "ble", ble, "Remote BLE temperature sensor");
-   b ("Dark mode", "dark", dark, "Dark mode means on-board LED is normally switched off");
+   revk_web_setting (req, "Dump", "dump");
 }
 
 // --------------------------------------------------------------------------------
@@ -2087,7 +2064,7 @@ app_main ()
    revk_start ();
    revk_blink (0, 0, "");
 
-   if (webcontrol)
+   if (webcontrol || websettings)
    {
       // Web interface
       httpd_config_t config = HTTPD_DEFAULT_CONFIG ();
@@ -2097,22 +2074,25 @@ app_main ()
       config.max_uri_handlers = 13 + revk_num_web_handlers();
       if (!httpd_start (&webserver, &config))
       {
-         if (webcontrol >= 2)
+         if (websettings)
             revk_web_settings_add (webserver);
          register_get_uri ("/", web_root);
-         register_get_uri ("/apple-touch-icon.png", web_icon);
-         register_get_uri ("/status", web_status);
-         register_get_uri ("/control", web_control);
-         register_get_uri ("/common/basic_info", web_get_basic_info);
-         register_get_uri ("/aircon/get_model_info", web_get_model_info);
-         register_get_uri ("/aircon/get_control_info", web_get_control_info);
-         register_get_uri ("/aircon/set_control_info", web_set_control_info);
-         register_get_uri ("/aircon/get_sensor_info", web_get_sensor_info);
-         register_get_uri ("/common/register_terminal", web_register_terminal);
-         register_get_uri ("/aircon/get_year_power_ex", web_get_year_power);
-         register_get_uri ("/aircon/get_week_power_ex", web_get_week_power);
-         register_get_uri ("/aircon/set_special_mode", web_set_special_mode);
-         // When adding, update config.max_uri_handlers
+         if (webcontrol)
+         {
+            register_get_uri ("/apple-touch-icon.png", web_icon);
+            // ESP8266: No websockets
+            register_get_uri ("/status", web_status);
+            register_get_uri ("/control", web_control);
+            register_get_uri ("/common/basic_info", legacy_web_get_basic_info);
+            register_get_uri ("/aircon/get_model_info", legacy_web_get_model_info);
+            register_get_uri ("/aircon/get_control_info", legacy_web_get_control_info);
+            register_get_uri ("/aircon/set_control_info", legacy_web_set_control_info);
+            register_get_uri ("/aircon/get_sensor_info", legacy_web_get_sensor_info);
+            register_get_uri ("/common/register_terminal", legacy_web_register_terminal);
+            register_get_uri ("/aircon/get_year_power_ex", legacy_web_get_year_power);
+            register_get_uri ("/aircon/get_week_power_ex", legacy_web_get_week_power);
+            register_get_uri ("/aircon/set_special_mode", legacy_web_set_special_mode);
+         }
       }
    }
 #ifdef	ELA
@@ -2121,7 +2101,7 @@ app_main ()
    else
       esp_wifi_set_ps (WIFI_PS_NONE);
 #endif
-   if (uart == UART_NONE)
+   if (uart == UART_NONE) // ESP8266: Fixed rx/tx pins
    {
       // Mock for interface development and testing
       daikin.status_known |= CONTROL_power | CONTROL_fan | CONTROL_temp | CONTROL_mode | CONTROL_econo | CONTROL_powerful;
@@ -2129,8 +2109,15 @@ app_main ()
       daikin.mode = 1;
       daikin.temp = 20.0;
    }
-
-   proto = protocol - 1;        // Starts one advanced
+   strncpy (daikin.model, model, sizeof (daikin.model));        // Default model
+   proto = protocol;
+   if (protofix)
+      protocol_set = 1;         // Fixed protocol - do not change
+   else if (proto >= PROTO_TYPE_MAX * PROTO_SCALE && proto_type () < sizeof (prototype) / sizeof (*prototype))
+   {                            // Manually set protocol above the auto scanning range
+      protocol_set = 1;
+   } else
+      proto--;
    while (1)
    {                            // Main loop
       // We're (re)starting comms from scratch, so set "talking" flag.
