@@ -1842,52 +1842,30 @@ legacy_web_set_special_mode (httpd_req_t * req)
 }
 
 // ESP8266: No-websocket web control routine. Reuses Daikin BRP response format.
-static void
-store_result(char * dest, size_t dest_size, const char * src, const char * end)
-{
-   size_t len = end - src;
-   if (dest_size - 1 < len)
-      len = dest_size - 1;
-   strncpy(dest, src, len);
-   dest[len] = 0;
-}
-
-static esp_err_t
-query_scan_key_value (const char **query, char *key, size_t key_size, char *val, size_t val_size)
-{
-   const char *qry_str = *query;
-
-   if (!*qry_str)
-      return ESP_ERR_NOT_FOUND;
-   const char *val_ptr = strchr(qry_str, '=');
-   if (!val_ptr)
-      return ESP_ERR_HTTPD_INVALID_REQ;
-   store_result (key, key_size, qry_str, val_ptr++);
-   const char *next_ptr = strchr(val_ptr, '&');
-   if (!next_ptr)
-      next_ptr = val_ptr + strlen(val_ptr);
-   store_result (val, val_size, val_ptr, next_ptr);
-   if (*next_ptr == '&')
-      next_ptr++;
-   *query = next_ptr;
-   return ESP_OK;
-}
-
 static esp_err_t
 web_control (httpd_req_t * req)
 {
-   char query[1000];
-   const char *err = get_query(req, query, sizeof(query));
-
-   if (!err)
+   const char *err = NULL;
+   jo_t j = revk_web_query (req);
+   if (!j)
+      err = "Query failed";
+   else
    {
+      // Almost-a-copypaste from daikin_control(). Almost, because revk_web_query()
+      // puts all the values as strings. daikin_control() also checks types, that's
+      // why we can't just reuse it
+      jo_type_t t;
       jo_t s = NULL;
-      const char *q = query;
-      char tag[20],
-         val[20];
 
-      while (!query_scan_key_value (&q, tag, sizeof(tag), val, sizeof(val)))
+      jo_rewind (j);
+      t = jo_next (j);   // Start object
+      while (t == JO_TAG)
       {
+         char tag[20] = "",
+            val[20] = "";
+         jo_strncpy (j, tag, sizeof (tag));
+         jo_next (j); // Ignore type, will be JO_STRING
+         jo_strncpy (j, val, sizeof (val));
 #define	b(name)		if(!strcmp(tag,#name))err=daikin_set_v(name,!strcmp(val,"true"));
 #define	t(name)		if(!strcmp(tag,#name))err=daikin_set_t(name,strtof(val,NULL));
 #define	i(name)		if(!strcmp(tag,#name))err=daikin_set_i(name,atoi(val));
@@ -1899,9 +1877,9 @@ web_control (httpd_req_t * req)
             break;
          }
          s = auto_mode_control_item (tag, val, s);
+         t = jo_skip (j);
       }
-      if (!err)
-         save_settings_if_changed (s);
+      save_settings_if_changed (s);
    }
 
    legacy_simple_response(req, err);
