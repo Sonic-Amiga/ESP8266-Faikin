@@ -2384,8 +2384,8 @@ app_main ()
                      }
 
                      buf[CNW_TEMP_OFFSET]     = encode_bcd(daikin.temp);
-                     buf[1]                   = 0;    // Unused ?
-                     buf[2]                   = 0x23; // No idea what this means; Daichi sends it
+                     buf[1]                   = 0x04; // These two bytes are perhaps not even used, but from experiments
+                     buf[2]                   = 0x50; // we know these packets work. So let's stick to known working values.
                      buf[CNW_MODE_OFFSET]     = cnw_encode_mode(daikin.mode, daikin.power);
                      buf[CNW_FAN_OFFSET]      = new_fan;
                      buf[CNW_SWING_OFFSET]    = daikin.swingv ? CNW_V_SWING : 0;
