@@ -1477,25 +1477,6 @@ get_query (httpd_req_t * req, char *buf, size_t buf_len)
       return "Required arguments missing";
 }
 
-static void
-simple_response (httpd_req_t * req, const char *err)
-{
-   httpd_resp_set_type (req, "text/plain");
-
-   if (err)
-   {
-      char resp[1000];
-
-      // This "ret" value is reported by my BRP on malformed request
-      // Error text after 'adv' is my addition; assuming 'advisory'
-      snprintf (resp, sizeof (resp), "ret=PARAM NG,adv=%s", err);
-      httpd_resp_sendstr (req, resp);
-   } else
-   {
-      httpd_resp_sendstr (req, "ret=OK,adv=");
-   }
-}
-
 // Macros with error collection for HTTP
 #define	daikin_set_v_e(err,name,value) {      \
    const char * e = daikin_set_v(name, value); \
@@ -1539,6 +1520,328 @@ web_status (httpd_req_t * req)
    return ESP_OK;
 }
 
+// Legacy API
+// The following handlers provide web-based control protocol, compatible
+// with original Daikin BRP series online controllers.
+// These functions make use of the JSON library, even though the requests are query form formatted, and replies are comma formatted
+
+static jo_t
+legacy_ok (void)
+{
+   jo_t j = jo_object_alloc ();
+   jo_string (j, "ret", "OK");
+   return j;
+}
+
+static esp_err_t
+legacy_send (httpd_req_t * req, jo_t * jp)
+{
+   httpd_resp_set_type (req, "text/plain");
+   if (jp && *jp)
+   {
+      jo_t j = *jp;
+      int len = jo_len (j);
+      char *buf = mallocspi (len + 40),
+         *p = buf;;
+      if (buf)
+      {
+         jo_rewind (j);
+         while (jo_next (j) == JO_TAG && p + 3 - buf < len)
+         {
+            if (p > buf)
+               *p++ = ',';
+            int l = jo_strlen (j);
+            if (p - buf + l + 2 > len)
+               break;
+            jo_strncpy (j, p, l + 1);
+            p += l;
+            *p++ = '=';
+            if (jo_next (j) < JO_STRING)
+               break;
+            l = jo_strlen (j);
+            *p = 0;
+            if (p - buf + l + 2 > len)
+               break;
+            jo_strncpy (j, p, l + 1);
+            p += l;
+         }
+         *p = 0;
+         httpd_resp_sendstr (req, buf);
+         free (buf);
+      }
+      jo_free (jp);
+   }
+   return ESP_OK;
+}
+
+esp_err_t
+legacy_simple_response (httpd_req_t * req, const char *err)
+{
+   jo_t j = jo_object_alloc ();
+   if (err && *err)
+   {
+      jo_string (j, "ret", "PARAM NG");
+      jo_string (j, "adv", err);
+   } else
+   {
+
+      jo_string (j, "ret", "OK");
+      jo_string (j, "adv", "");
+   }
+   return legacy_send (req, &j);
+}
+
+static esp_err_t
+legacy_web_get_basic_info (httpd_req_t * req)
+{
+   time_t now = time (0);
+   struct tm tm;
+   localtime_r (&now, &tm);
+   jo_t j = legacy_ok ();
+   jo_string (j, "type", "aircon");
+   jo_string (j, "reg", region);
+   jo_int (j, "dst", tm.tm_isdst);      // Guess
+   jo_string (j, "ver", revk_version);
+   jo_string (j, "rev", revk_version);
+   jo_int (j, "pow", daikin.power);
+   jo_int (j, "err", 1 - daikin.online);
+   jo_int (j, "location", 0);
+   jo_string (j, "name", hostname);
+   jo_int (j, "icon", 1);
+   jo_string (j, "method", "none");     // ??
+   jo_int (j, "port", 0);       // ??
+   jo_string (j, "id", revk_id);
+   jo_string (j, "pw", "");
+   jo_int (j, "lpw_flag", 0);
+   jo_int (j, "adp_kind", 0);   // ??
+   jo_int (j, "pv", 0);         // ?? versions?
+   jo_int (j, "cpv", 0);        //
+   jo_int (j, "cpv_minor", 0);  //
+   jo_int (j, "led", 0);
+   jo_int (j, "en_setzone", 0); // ??
+   jo_string (j, "mac", revk_id);
+   jo_string (j, "ssid", revk_wifi ());
+   jo_string (j, "grp_name", "");
+   jo_int (j, "en_grp", 0);     //??
+   return legacy_send (req, &j);
+}
+
+static esp_err_t
+legacy_web_get_model_info (httpd_req_t * req)
+{
+   jo_t j = legacy_ok ();
+   jo_string (j, "model", daikin.model);
+   return legacy_send (req, &j);
+}
+
+static esp_err_t
+legacy_web_get_control_info (httpd_req_t * req)
+{
+   jo_t j = legacy_ok ();
+   jo_int (j, "pow", daikin.power);
+   if (daikin.mode <= 7)
+      jo_stringf (j, "mode", "%c", "64370002"[daikin.mode]);
+   jo_string (j, "adv", daikin.powerful ? "2" : "");
+   jo_litf (j, "stemp", "%.1f", daikin.temp);
+   jo_int (j, "shum", 0);
+   for (int i = 1; i <= 7; i++)
+      if (i != 6)
+      {
+         char tag[4] = { 'd', 't', '0' + i };
+         jo_litf (j, tag, "%.1f", daikin.temp);
+      }
+   for (int i = 1; i <= 7; i++)
+      if (i != 6)
+      {
+         char tag[4] = { 'd', 'h', '0' + i };
+         jo_int (j, tag, 0);
+      }
+   jo_int (j, "dhh", 0);
+   jo_litf (j, "b_stemp", "%.1f", daikin.temp);
+   jo_int (j, "b_shum", 0);
+   jo_int (j, "alert", 255);
+   if (daikin.fan <= 6)
+      jo_stringf (j, "f_rate", "%c", "A34567B"[daikin.fan]);
+   jo_int (j, "f_dir", daikin.swingh * 2 + daikin.swingv);
+   for (int i = 1; i <= 7; i++)
+      if (i != 6)
+      {
+         char tag[5] = { 'd', 'f', 'r', '0' + i };
+         jo_int (j, tag, 0);
+      }
+   jo_int (j, "dfrh", 0);
+   for (int i = 1; i <= 7; i++)
+      if (i != 6)
+      {
+         char tag[5] = { 'd', 'f', 'd', '0' + i };
+         jo_int (j, tag, 0);
+      }
+   jo_int (j, "dfdh", 0);
+   jo_int (j, "dmnd_run", 0);
+   jo_int (j, "en_demand", 0);
+   return legacy_send (req, &j);
+}
+
+static esp_err_t
+legacy_web_set_control_info (httpd_req_t * req)
+{
+   const char *err = NULL;
+   jo_t j = revk_web_query (req);
+   if (!j)
+      err = "Query failed";
+   else
+   {
+      if (jo_find (j, "pow"))
+      {
+         char *v = jo_strdup (j);
+         if (v)
+            daikin_set_v_e (err, power, atoi (v));
+         free (v);
+      }
+      if (jo_find (j, "mode"))
+      {
+         char *v = jo_strdup (j);
+         if (v)
+         {
+            int n = atoi (v);
+            static int8_t modes[] = { 3, 3, 7, 2, 1, -1, 0, 3 };        // AADCH-FA
+            int8_t setval = (n >= 0 && n <= 7) ? modes[n] : -1;
+            if (setval == -1)
+               err = "Invalid mode value";
+            else
+               daikin_set_v_e (err, mode, setval);
+         }
+         free (v);
+      }
+      if (jo_find (j, "stemp"))
+      {
+         char *v = jo_strdup (j);
+         if (v)
+            daikin_set_t_e (err, temp, strtof (v, NULL));
+         free (v);
+      }
+      if (jo_find (j, "f_rate"))
+      {
+         char *v = jo_strdup (j);
+         if (v)
+         {
+            int8_t setval;
+            if (*v == 'A')
+               setval = 0;
+            else if (*v == 'B')
+               setval = 6;
+            else if (*v >= '3' && *v <= '7')
+               setval = *v - '2';
+            else
+               setval = -1;
+            if (setval == -1)
+               err = "Invalid f_rate value";
+            else
+               daikin_set_v_e (err, fan, setval);
+         }
+         free (v);
+      }
+      if (jo_find (j, "f_dir"))
+      {
+         // *value is a bitfield, expressed as a single ASCII digit '0' - '3'
+         // Since '0' is 0x30, we don't bother, bit checks work as they should
+         char *v = jo_strdup (j);
+         if (v)
+         {
+            int n = atoi (v);
+            daikin_set_v_e (err, swingv, n);
+            daikin_set_v_e (err, swingh, !!(n & 2));
+         }
+         free (v);
+      }
+      jo_free (&j);
+   }
+   return legacy_simple_response (req, err);
+}
+
+static esp_err_t
+legacy_web_get_sensor_info (httpd_req_t * req)
+{
+   jo_t j = legacy_ok ();
+   if (daikin.status_known & CONTROL_home)
+      jo_litf (j, "htemp", "%.2f", daikin.home);
+   else
+      jo_string (j, "htemp", "-");
+   jo_string (j, "hhum", "-");
+   if (daikin.status_known & CONTROL_outside)
+      jo_litf (j, "otemp", "%.2f", daikin.outside);
+   else
+      jo_string (j, "otemp", "-");
+   jo_int (j, "err", 0);
+   jo_string (j, "cmpfreq", "-");
+   return legacy_send (req, &j);
+}
+
+static esp_err_t
+legacy_web_register_terminal (httpd_req_t * req)
+{
+   // This is called with "?key=<security_key>" parameter if any other URL
+   // responds with 403. It's supposed that we remember our client and enable access.
+   // We don't support authentication currently, so let's just return OK
+   // However, it could be a nice idea to have in future
+   jo_t j = legacy_ok ();
+   return legacy_send (req, &j);
+}
+
+static esp_err_t
+legacy_web_get_year_power (httpd_req_t * req)
+{
+   jo_t j = legacy_ok ();
+   jo_string (j, "curr_year_heat", "0/0/0/0/0/0/0/0/0/0/0/0");
+   jo_string (j, "prev_year_heat", "0/0/0/0/0/0/0/0/0/0/0/0");
+   jo_string (j, "curr_year_cool", "0/0/0/0/0/0/0/0/0/0/0/0");
+   jo_string (j, "prevr_year_cool", "0/0/0/0/0/0/0/0/0/0/0/0");
+   return legacy_send (req, &j);
+}
+
+static esp_err_t
+legacy_web_get_week_power (httpd_req_t * req)
+{
+   // ret=OK,s_dayw=2,week_heat=0/0/0/0/0/0/0/0/0/0/0/0/0/0,week_cool=0/0/0/0/0/0/0/0/0/0/0/0/0/0
+   // Have no idea how to implement it, perhaps the original module keeps some internal statistics.
+   // For now let's just prevent errors in OpenHAB and return an empty OK response
+   // Note all zeroes from my BRP
+   jo_t j = legacy_ok ();
+   return legacy_send (req, &j);
+}
+
+static esp_err_t
+legacy_web_set_special_mode (httpd_req_t * req)
+{
+   char query[200];
+   const char *err = get_query (req, query, sizeof (query));
+   if (!err)
+   {
+      char mode[6],
+        value[2];
+      if (!httpd_query_key_value (query, "spmode_kind", mode, sizeof (mode)) &&
+          !httpd_query_key_value (query, "set_spmode", value, sizeof (value)))
+      {
+         if (!strcmp (mode, "12"))
+            err = daikin_set_v (econo, *value == '1');
+         else if (!strcmp (mode, "2"))
+            err = daikin_set_v (powerful, *value == '1');
+         else
+            err = "Unsupported spmode_kind value";
+         // TODO comfort/streamer/sensor/quiet
+
+         // The following other modes are known from OpenHAB sources:
+         // STREAMER "13"
+         // POWERFUL_STREAMER "2/13"
+         // ECO_STREAMER "12/13"
+         // Don't know what to do with them and my AC doesn't support them
+      }
+   }
+
+   return legacy_simple_response (req, err);
+}
+
+// ESP8266: No-websocket web control routine. Reuses Daikin BRP response format.
 static void
 store_result(char * dest, size_t dest_size, const char * src, const char * end)
 {
@@ -1601,269 +1904,7 @@ web_control (httpd_req_t * req)
          save_settings_if_changed (s);
    }
 
-   simple_response(req, err);
-   return ESP_OK;
-}
-
-// The following handlers provide web-based control potocol, compatible
-// with original Daikin BRP series online controllers.
-
-static esp_err_t
-legacy_web_get_basic_info (httpd_req_t * req)
-{
-   // Full string from my BRP module:
-   // ret=OK,type=aircon,reg=eu,dst=0,ver=3_3_9,pow=0,err=0,location=0,name=%4c%69%76%69%6e%67%20%72%6f%6f%6d,
-   // icon=2,method=home only,port=30050,id=,pw=,lpw_flag=0,adp_kind=2,pv=2,cpv=2,cpv_minor=00,led=1,en_setzone=1,
-   // mac=<my_mac>,adp_mode=run,en_hol=0,ssid1=<my_ssid>,radio1=-60,grp_name=,en_grp=0
-   httpd_resp_set_type (req, "text/plain");
-   char resp[1000],
-    *o = resp;
-
-   // Report something. In fact OpenHAB only uses this URL for discovery,
-   // and only checks for ret=OK.
-   o += sprintf (o, "ret=OK,type=aircon,reg=%s", region);
-   o += sprintf (o, ",mac=%02X%02X%02X%02X%02X%02X", revk_mac[0], revk_mac[1], revk_mac[2], revk_mac[3], revk_mac[4], revk_mac[5]);
-   o += sprintf (o, ",ssid1=%s", revk_wifi ());
-
-   httpd_resp_sendstr (req, resp);
-   return ESP_OK;
-}
-
-static char
-brp_mode ()
-{
-   // Mapped from FHCA456D. Verified against original BRP069A41 controller,
-   // which uses 7 for 'Auto'. This may vary across different controller
-   // versions, see a comment in legacy_web_set_control_info()
-   return "64370002"[daikin.mode];
-}
-
-static esp_err_t
-legacy_web_get_model_info (httpd_req_t * req)
-{
-   httpd_resp_set_type (req, "text/plain");
-   char resp[1000],
-    *o = resp;
-   o += sprintf (o, "ret=OK");
-   o += sprintf (o, ",model=0000");     // Don't know it
-   httpd_resp_sendstr (req, resp);
-   return ESP_OK;
-}
-
-static esp_err_t
-legacy_web_get_control_info (httpd_req_t * req)
-{
-   httpd_resp_set_type (req, "text/plain");
-   char resp[1000],
-    *o = resp;
-   o += sprintf (o, "ret=OK");
-   o += sprintf (o, ",pow=%d", daikin.power);
-   if (daikin.mode <= 7)
-      o += sprintf (o, ",mode=%c", brp_mode ());
-   o += sprintf (o, ",adv=%s", daikin.powerful ? "2" : "");
-   o += sprintf (o, ",stemp=%.1f", daikin.temp);
-   o += sprintf (o, ",shum=0");
-   for (int i = 1; i <= 7; i++)
-      if (i != 6)
-         o += sprintf (o, ",dt%d=%.1f", i, daikin.temp);
-   for (int i = 1; i <= 7; i++)
-      if (i != 6)
-         o += sprintf (o, ",dh%d=0", i);
-   o += sprintf (o, ",dhh=0");
-   if (daikin.mode <= 7)
-      o += sprintf (o, ",b_mode=%c", brp_mode ());
-   o += sprintf (o, ",b_stemp=%.1f", daikin.temp);
-   o += sprintf (o, ",b_shum=0");
-   o += sprintf (o, ",alert=255");
-   if (daikin.fan <= 6)
-      o += sprintf (o, ",f_rate=%c", "A34567B"[daikin.fan]);
-   o += sprintf (o, ",f_dir=%d", daikin.swingh * 2 + daikin.swingv);
-   for (int i = 1; i <= 7; i++)
-      if (i != 6)
-         o += sprintf (o, ",dfr%d=0", i);
-   o += sprintf (o, ",dfrh=0");
-   for (int i = 1; i <= 7; i++)
-      if (i != 6)
-         o += sprintf (o, ",dfd%d=0", i);
-   o += sprintf (o, ",dfdh=0");
-   o += sprintf (o, ",dmnd_run=0");
-   o += sprintf (o, ",en_demand=0");
-   httpd_resp_sendstr (req, resp);
-   return ESP_OK;
-}
-
-static esp_err_t
-legacy_web_set_control_info (httpd_req_t * req)
-{
-   char query[1000];
-   const char *err = get_query (req, query, sizeof (query));
-
-   if (!err)
-   {
-      char value[10];
-
-      if (!httpd_query_key_value (query, "pow", value, sizeof (value)) && *value)
-         daikin_set_v_e (err, power, *value == '1');
-      if (!httpd_query_key_value (query, "mode", value, sizeof (value)) && *value)
-      {
-         // Orifinal Faikin-ESP32 code uses 1 for 'Auto` mode
-         // OpenHAB uses value of 0
-         // My original Daikin BRP069A41 controller reports 7. I tried writing '1' there,
-         // it starts replying back with this value, but there's no way to see what
-         // the AC does. Probably nothing.
-         // Here we promote all three values as 'Auto'. Just in case.
-         static int8_t modes[] = { 3, 3, 7, 2, 1, -1, 0, 3 };   // AADCH-FA
-         int8_t setval = (*value >= '0' && *value <= '7') ? modes[*value - '0'] : -1;
-
-         if (setval == -1)
-            err = "Invalid mode value";
-         else
-            daikin_set_v_e (err, mode, setval);
-      }
-      if (!httpd_query_key_value (query, "stemp", value, sizeof (value)) && *value)
-         daikin_set_t_e (err, temp, strtof (value, NULL));
-      if (!httpd_query_key_value (query, "f_rate", value, sizeof (value)) && *value)
-      {
-         int8_t setval;
-
-         if (*value == 'A')
-            setval = 0;
-         else if (*value == 'B')
-            setval = 6;
-         else if (*value >= '3' && *value <= '7')
-            setval = *value - '2';
-         else
-            setval = -1;
-         if (setval == -1)
-            err = "Invalid f_rate value";
-         else
-            daikin_set_v_e (err, fan, setval);
-      }
-      if (!httpd_query_key_value (query, "f_dir", value, sizeof (value)) && *value)
-      {
-         // *value is a bitfield, expressed as a single ASCII digit '0' - '3'
-         // Since '0' is 0x30, we don't bother, bit checks work as they should
-         daikin_set_v_e (err, swingv, *value & 1);
-         daikin_set_v_e (err, swingh, !!(*value & 2));
-      }
-   }
-
-   simple_response (req, err);
-   return ESP_OK;
-}
-
-static esp_err_t
-legacy_web_get_sensor_info (httpd_req_t * req)
-{
-   // ret=OK,htemp=23.0,hhum=-,otemp=17.0,err=0,cmpfreq=0
-   httpd_resp_set_type (req, "text/plain");
-   char resp[1000],
-    *o = resp;
-
-   o += sprintf (o, "ret=OK");
-   o += sprintf (o, ",htemp="); // Indoor temperature
-   if (daikin.status_known & CONTROL_home)
-      o += sprintf (o, "%.2f", daikin.home);
-   else
-      *o++ = '-';
-   o += sprintf (o, ",hhum=-"); // Indoor humidity, not supported (yet)
-   o += sprintf (o, ",otemp="); // Outdoor temperature
-   if (daikin.status_known & CONTROL_outside)
-      o += sprintf (o, "%.2f", daikin.outside);
-   else
-      *o++ = '-';
-   o += sprintf (o, ",err=0");  // Just for completeness
-   o += sprintf (o, ",cmpfreq=-");      // Compressor frequency, not supported (yet)
-
-   httpd_resp_sendstr (req, resp);
-   return ESP_OK;
-}
-
-static esp_err_t
-legacy_web_register_terminal (httpd_req_t * req)
-{
-   // This is called with "?key=<security_key>" parameter if any other URL
-   // responds with 403. It's supposed that we remember our client and enable access.
-   // We don't support authentication currently, so let's just return OK
-   // However, it could be a nice idea to have in future
-   httpd_resp_set_type (req, "text/plain");
-   char resp[1000],
-    *o = resp;
-
-   o += sprintf (o, "ret=OK");
-
-   httpd_resp_sendstr (req, resp);
-   return ESP_OK;
-}
-
-static esp_err_t
-legacy_web_get_year_power (httpd_req_t * req)
-{
-   // ret=OK,curr_year_heat=0/0/0/0/0/0/0/0/0/0/0/0,prev_year_heat=0/0/0/0/0/0/0/0/0/0/0/0,curr_year_cool=0/0/0/0/0/0/0/0/0/0/0/0,prev_year_cool=0/0/0/0/0/0/0/0/0/0/0/0
-   httpd_resp_set_type (req, "text/plain");
-   char resp[1000],
-    *o = resp;
-
-   // Have no idea how to implement it, perhaps the original module keeps some internal statistics.
-   // For now let's just prevent errors in OpenHAB and return an empty OK response
-   // Note all zeroes from my BRP
-   o += sprintf (o, "ret=OK");
-
-   httpd_resp_sendstr (req, resp);
-   return ESP_OK;
-}
-
-static esp_err_t
-legacy_web_get_week_power (httpd_req_t * req)
-{
-   // ret=OK,s_dayw=2,week_heat=0/0/0/0/0/0/0/0/0/0/0/0/0/0,week_cool=0/0/0/0/0/0/0/0/0/0/0/0/0/0
-   httpd_resp_set_type (req, "text/plain");
-   char resp[1000],
-    *o = resp;
-
-   // Have no idea how to implement it, perhaps the original module keeps some internal statistics.
-   // For now let's just prevent errors in OpenHAB and return an empty OK response
-   // Note all zeroes from my BRP
-   o += sprintf (o, "ret=OK");
-
-   httpd_resp_sendstr (req, resp);
-   return ESP_OK;
-}
-
-static esp_err_t
-legacy_web_set_special_mode (httpd_req_t * req)
-{
-   char query[200];
-   const char *err = get_query (req, query, sizeof (query));
-
-   if (!err)
-   {
-      char mode[6],
-        value[2];
-
-      if (!httpd_query_key_value (query, "spmode_kind", mode, sizeof (mode)) &&
-          !httpd_query_key_value (query, "set_spmode", value, sizeof (value)))
-      {
-         if (!strcmp (mode, "12"))
-         {
-            err = daikin_set_v (econo, *value == '1');
-         } else if (!strcmp (mode, "2"))
-         {
-            err = daikin_set_v (powerful, *value == '1');
-         } else
-         {
-            err = "Unsupported spmode_kind value";
-         }
-
-         // The following other modes are known from OpenHAB sources:
-         // STREAMER "13"
-         // POWERFUL_STREAMER "2/13"
-         // ECO_STREAMER "12/13"
-         // Don't know what to do with them and my AC doesn't support them
-      }
-   }
-
-   simple_response (req, err);
+   legacy_simple_response(req, err);
    return ESP_OK;
 }
 
@@ -1887,7 +1928,8 @@ send_ha_config (void)
       jo_string (j, "mf", "RevK");
       jo_stringf (j, "cu", "http://%s.local/", hostname);
       jo_close (j);
-      jo_string (j, "icon", icon);
+      if (icon)
+         jo_string (j, "icon", icon);
       return j;
    }
    void addtemp (const char *tag, const char *icon)
@@ -1924,15 +1966,6 @@ send_ha_config (void)
       //jo_string (j, "name", hostname);
       //jo_null(j,"name");
       jo_stringf (j, "~", "command/%s", hostname);      // Prefix for command
-#if 0                           // Cannot get this logic working
-      if (daikin.status_known & CONTROL_online)
-      {
-         jo_object (j, "avty");
-         jo_string (j, "t", revk_id);
-         jo_string (j, "val_tpl", "{{value_json.online}}");
-         jo_close (j);
-      }
-#endif
       jo_int (j, "min_temp", tmin);
       jo_int (j, "max_temp", tmax);
       jo_string (j, "temp_unit", "C");
@@ -1975,9 +2008,12 @@ send_ha_config (void)
          jo_string (j, "swing_mode_stat_tpl", "{{value_json.swing}}");
          jo_array (j, "swing_modes");
          jo_string (j, NULL, "off");
-         jo_string (j, NULL, "H");
-         jo_string (j, NULL, "V");
-         jo_string (j, NULL, "H+V");
+         if (daikin.status_known & CONTROL_swingh)
+            jo_string (j, NULL, "H");
+         if (daikin.status_known & CONTROL_swingv)
+            jo_string (j, NULL, "V");
+         if ((daikin.status_known & (CONTROL_swingh | CONTROL_swingv)) == (CONTROL_swingh | CONTROL_swingv))
+            jo_string (j, NULL, "H+V");
          jo_close (j);
       }
       if (daikin.status_known & (CONTROL_econo | CONTROL_powerful))
