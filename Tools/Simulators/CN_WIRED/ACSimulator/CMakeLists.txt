@@ -9,6 +9,16 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+if(WIN32)
+# On Windows we want our executable to be portable, so we're linking against qt5-static
+# and disable looking for .dll.a. This yields a fully statically-linked executable
+# Unfortunately we can't link against qt6-static because MinGW maintainers decided not
+# to include QTSerialPort in static build.
+# See https://github.com/msys2/MINGW-packages/issues/19890#issuecomment-1913655917
+set(CMAKE_PREFIX_PATH C:/msys64/mingw64/qt5-static)
+set(CMAKE_FIND_LIBRARY_SUFFIXES .lib;.a)
+endif(WIN32)
+
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets SerialPort)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets SerialPort)
 
