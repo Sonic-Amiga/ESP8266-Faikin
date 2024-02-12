@@ -6,6 +6,7 @@
 #include <limits.h>
 #include <string.h>
 #include <task.h>
+#include <unistd.h>
 
 #include <driver/hw_timer.h>
 #include <esp8266/gpio_struct.h>
@@ -159,12 +160,6 @@ int cn_wired_read_bytes (uint8_t *buffer, TickType_t timeout)
     return CNW_PKT_LEN;
 }
 
-// We need to act quickly-quickly-quickly for better timings. Standard drivers
-// does lots of unnecessary stuff (like argument checks), here we're avoiding
-// all that. All the HW-specific values are pre-cooked in our struct, so we're
-// just banging the metal.
-// This code is basically shamelessly stolen from SDK's gpio and hw_timer drivers
-// respectively
 #define tx_set_high GPIO.out_w1ts |= gpio_mask
 #define tx_set_low  GPIO.out_w1tc |= gpio_mask
 
@@ -216,10 +211,16 @@ int cn_wired_write_bytes (const uint8_t *data)
     SEND_BYTE(data, 7)
     tx_set_high; // Idle high
 
+    // Execute long 16 ms delay with enabled interrupts.
     portEXIT_CRITICAL();
+    usleep(END_DELAY);
+    portENTER_CRITICAL();
 
-    // 2ms LOW pulse in the end proved optional, conditioner perfectly
-    // accepts data without it. So for simplicity we don't bother.
+    tx_set_low;
+    os_delay_us(END_LENGTH); // END low
+    tx_set_high; // Idle high
+
+    portEXIT_CRITICAL();
 
     return CNW_PKT_LEN;
 }
