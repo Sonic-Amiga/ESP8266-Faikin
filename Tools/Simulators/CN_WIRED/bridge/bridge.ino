@@ -176,7 +176,7 @@ void Receiver::decodeData(uint8_t *dest) const {
 }
 
 // A very simple self-explanatory data send routine
-static void send(const uint8_t* data) {
+static void send(const uint8_t* data, bool end_pulse) {
   uint8_t bit  = digitalPinToBitMask(TX_PIN);
   uint8_t port = digitalPinToPort(TX_PIN);
   volatile uint8_t *out = portOutputRegister(port);
@@ -202,10 +202,12 @@ static void send(const uint8_t* data) {
   SEND_BYTE(data, 5)
   SEND_BYTE(data, 6)
   SEND_BYTE(data, 7)
-  *out = high; // Delay high
-  delayMicroseconds(END_DELAY);
-  *out = low; // Terminator low
-  delayMicroseconds(END_LENGTH);
+  if (end_pulse) {
+    *out = high;
+    delayMicroseconds(END_DELAY); // Delay high
+    *out = low;
+    delayMicroseconds(END_LENGTH); // END low
+  }
   *out = high; // Idle high
 
   SREG = oldSREG; // Restore interrupts
@@ -300,7 +302,8 @@ TerminalInput<32> termin;
 
 // Packet, pending for send
 uint8_t tx_buffer[PKT_LEN];
-bool send_pending = false;
+bool    tx_end_pulse;
+bool    send_pending = false;
 
 static uint8_t parseHexDigit(char c) {
   return ((c < 'A') ? c - '0' : toupper(c) - 'A' + 10);
@@ -325,7 +328,11 @@ static void handleCommand(const char* line) {
   uint8_t hex_buffer[PKT_LEN];
 
   // Command line format is:
-  // NN NN NN NN NN NN NN NN (hex bytes) - send the data
+  // NN NN NN NN NN NN NN NN _ (hex bytes) - send the data
+  // Underscore character is optional, it tells us to send "END" pulse of 2 ms
+  // after the packet. This pulse is a part of official CN_WIRED protocol, but some
+  // 3rd party devices don't seem to send it, so we leave this option for research.
+  // Spaces are ignored, and are present only for user's convenience
   for (int i = 0; i < PKT_LEN; i++) {
     // Skip spaces if any
     while (*p == ' ')
@@ -344,9 +351,15 @@ static void handleCommand(const char* line) {
     hex_buffer[i] = byte;
   }
 
+  // Skip spaces if any
+  while (*p == ' ')
+    p++;
+
   // Queue the packet
   memcpy(tx_buffer, hex_buffer, PKT_LEN);
   setCRC(tx_buffer);
+  // '_' postfix is used to tell the bridge to send a terminating 2ms LOW pulse
+  tx_end_pulse = *p == '_';
   send_pending = true;
 }
 
@@ -391,12 +404,14 @@ void loop() {
   if (send_pending && !rx1.isBusy()) {
     // Unwinding the first iteration this way avoids unwanted delay
     // before first of after last iteration
-    send(tx_buffer);
+    send(tx_buffer, tx_end_pulse);
     // Respond back after actually sending the packet
     dump("Tx", tx_buffer, PKT_LEN);
+    if (tx_end_pulse)
+      Serial.print('_');
     Serial.println();
-    // Sent
-    send_pending = 0;
+
+    send_pending = false; // Sent
   }
 
   yield();
