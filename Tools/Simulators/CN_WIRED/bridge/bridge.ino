@@ -175,16 +175,22 @@ void Receiver::decodeData(uint8_t *dest) const {
   SEND_BIT(byte, 7)             \
 }
 
-// A very simple self-explanatory data send routine
+// Data send routine. Extremely unrolled by hands for acheiving timings as precise as possible.
 static void send(const uint8_t* data, bool end_pulse) {
+  // Pre-compute everything we need for GPIO manipulations.
+  // What we're doing here duplicates inner guts of digitalWrite(). We do it so that
+  // the only remaining thing is actual register write.
   uint8_t bit  = digitalPinToBitMask(TX_PIN);
   uint8_t port = digitalPinToPort(TX_PIN);
   volatile uint8_t *out = portOutputRegister(port);
+  // We're not doing any concurrent output from within interrupts, so we can compute
+  // bit masks ouitside of cli()
   uint8_t high = *out | bit;
   uint8_t low = high & ~bit;
-	uint8_t oldSREG = SREG;
+  // Preserve original state of interrupts
+  uint8_t oldSREG = SREG;
 
-  // Comment out this cli() in order to enable loopback testing
+  // Disable interrupts. Comment this out in order to enable loopback testing.
   cli();
 
   *out = low;
@@ -193,7 +199,7 @@ static void send(const uint8_t* data, bool end_pulse) {
   delayMicroseconds(START_LENGTH); // Start bit high
   *out = low;
   delayMicroseconds(SPACE_LENGTH); // Space low
-  // Extremely unrolled for better precision
+  // Send our 8 bytes. Loops unrolled by hands.
   SEND_BYTE(data, 0)
   SEND_BYTE(data, 1)
   SEND_BYTE(data, 2)
