@@ -17,8 +17,11 @@ all:	settings.h
 	@cp build/bootloader/bootloader.bin $(PROJECT_NAME)$(SUFFIX)-bootloader.bin
 	@echo Done: $(PROJECT_NAME)$(SUFFIX).bin
 
+beta:
+	./issue.sh betarelease
+
 issue:
-	./issue.sh
+	./issue.sh release
 
 settings.h:     components/ESP32-RevK/revk_settings settings.def components/ESP32-RevK/settings.def
 	components/ESP32-RevK/revk_settings $^
