@@ -6,6 +6,7 @@ sdkconfig
 dependencies.lock
 managed_components
 *.bin
+!betarelease/*.bin
 !release/*.bin
 settings.c
 settings.h
