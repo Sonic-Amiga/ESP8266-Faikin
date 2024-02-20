@@ -40,21 +40,29 @@ struct CN_Wired_Receiver {
     TaskHandle_t task;
 };
 
+enum State {
+    TX_IDLE,
+    TX_DATA,
+    TX_END
+};
+
 struct CN_Wired_Transmitter {
     uint8_t buffer[CNW_PKT_LEN];
-    int     busy;
-    int     line_state;
-    int     tx_bytes;
-    int     tx_bits;
-    int     next_bit;  // Time of the next bit
-    int     gpio_mask; // Pre-cooked GPIO mask
-    int     t_space;   // Pre-cooked delays in ticks
-    int     t_zero;
-    int     t_one;
+    enum State tx_state;
+    int        line_state;
+    int        tx_bytes;
+    int        tx_bits;
+    int        next_bit;  // Time of the next bit
+    int        gpio_mask; // Pre-cooked GPIO mask
+    int        t_space;   // Pre-cooked delays in ticks
+    int        t_zero;
+    int        t_one;
+    int        t_delay;
+    int        t_end;
 };
 
 // We need to act quickly-quickly-quickly for better timings. Standard drivers
-// does lots of unnecessary stuff (like argument checks), here we're avoiding
+// do lots of unnecessary stuff (like argument checks), here we're avoiding
 // all that. All the HW-specific values are pre-cooked in our struct, so we're
 // just banging the metal.
 // This code is basically shamelessly stolen from SDK's gpio and hw_timer drivers
@@ -158,10 +166,7 @@ void tx_interrupt (void* arg)
         tx_set_high(tx);
 
         // We've set our line and timer, now we have some time for housekeeping.
-        if (tx->tx_bytes == CNW_PKT_LEN) {
-            // The current bit we've just started is the final one, no more data
-            tx->next_bit = 0;
-        } else {
+        if (tx->tx_bytes < CNW_PKT_LEN) {
             // Ticks value for the next bit.
             tx->next_bit = ((tx->buffer[tx->tx_bytes] >> tx->tx_bits) & 1) ? tx->t_one : tx->t_zero;
             // Advance bit/byte counters
@@ -171,13 +176,21 @@ void tx_interrupt (void* arg)
                 tx->tx_bits = 0;
                 tx->tx_bytes++;
             }
+        } else if (tx->tx_state == TX_DATA) {
+            // The current bit we've just started is the final one, no more data.
+            // After the space, issue a t_delay HIGH
+            tx->tx_state = TX_END;
+            tx->next_bit = tx->t_delay;
+        } else {
+            // tx->tx_state == TX_END. We've just started our DELAY.
+            // It will be followed by t_end LOW, after which we're done
+            tx->t_space = tx->t_end;
+            tx->next_bit = 0;
         }
     } else {
-        // LOW->HIGH, no next_bit set. We've just completed our final space and turned idle.
-        // 2ms LOW pulse is not mandatory when sending data to the conditioner, so we avoid
-        // the trouble with pleasure.
+        // LOW->HIGH, no next_bit set. We've just completed our final pulse and turning idle.
         tx_set_high(tx);
-        tx->busy = 0;
+        tx->tx_state = TX_IDLE;
     }
 
     tx->line_state = new_state;
@@ -194,7 +207,7 @@ esp_err_t cn_wired_driver_install (gpio_num_t rx, gpio_num_t tx)
 
     xTaskNotifyStateClear(rx_obj.task);
 
-    tx_obj.busy     = 0;
+    tx_obj.tx_state  = TX_IDLE;
     tx_obj.gpio_mask = 1 << tx;
 
     gpio_pad_select_gpio(rx);
@@ -246,11 +259,11 @@ int cn_wired_read_bytes (uint8_t *buffer, TickType_t timeout)
 
 int cn_wired_write_bytes (const uint8_t *buffer)
 {
-    if (tx_obj.busy)
+    if (tx_obj.tx_state != TX_IDLE)
         return 0; // Busy, retry plz
 
     memcpy(tx_obj.buffer, buffer, CNW_PKT_LEN);
-    tx_obj.busy       = 1;
+    tx_obj.tx_state   = TX_DATA;
     tx_obj.tx_bits    = 0;
     tx_obj.tx_bytes   = 0;
     tx_obj.line_state = 0;                         // We start with SYNC low
@@ -270,6 +283,8 @@ int cn_wired_write_bytes (const uint8_t *buffer)
     tx_obj.t_one    = timer_ticks(BIT_1_LENGTH);
     tx_obj.t_zero   = timer_ticks(BIT_0_LENGTH);
     tx_obj.t_space  = timer_ticks(SPACE_LENGTH);
+    tx_obj.t_delay  = timer_ticks(END_DELAY);
+    tx_obj.t_end    = timer_ticks(END_LENGTH);
 
     return CNW_PKT_LEN;
 }
