@@ -7,7 +7,7 @@
 #define CNW_TEMP_OFFSET     0
 #define CNW_MODE_OFFSET     3
 #define CNW_FAN_OFFSET      4
-#define CNW_SWING_OFFSET    5
+#define CNW_SPECIALS_OFFSET 5
 #define CNW_CRC_TYPE_OFFSET 7
 
 // Mode can be ORed with a poweroff flag
@@ -29,7 +29,8 @@
 #define CNW_FAN_POWERFUL 3
 #define CNW_FAN_ECO      9
 
-// Vertical swing flag
+// Special mode flags
+#define CNW_LED_ON  0x80
 #define CNW_V_SWING 0x10
 
 // Packet types
