@@ -27,15 +27,22 @@
 b(power)
 e(mode,FHCA456D)
 t(temp)
+i(demand)
 e(fan,A12345Q)
 b(swingh)
 b(swingv)
 b(econo)
 b(powerful)
+b(comfort)
+b(streamer)
+b(sensor)
+b(led)
+b(quiet)
 
 #undef	e
 #undef	b
 #undef	t
+#undef	v
 #undef	i
 #undef	s
 #undef	r
