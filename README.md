@@ -35,12 +35,19 @@ put together such a board with minimum efforts.
 # Supported hardware
 
 * Daichi DW22-B Wi-fi controller ver.03
-* AnyDIY ESP8266-based board; reference schematic included.
+* Any ESP8266-based board of your own design; reference schematic included.
 
 # Conditioner compatibility list
 
-This project is being developed and tested on FTXF20D "Sensira". There's also a list of supported
-models on [Original Faikin-ESP32 wiki](https://github.com/revk/ESP32-Faikin/wiki/List-of-confirmed-working-air-con-units);
+This project has been successfully tested on:
+
+- FTXF20D "Sensira" - S21 protocol
+- FTXB25 - S21 protocol
+- FTXB35 - S21 protocol
+- FTXB50C - CN_WIRED protocol
+
+There's also a list of supported models on
+[Original Faikin-ESP32 wiki](https://github.com/revk/ESP32-Faikin/wiki/List-of-confirmed-working-air-con-units);
 those are also expected to work.
 
 # Installing
