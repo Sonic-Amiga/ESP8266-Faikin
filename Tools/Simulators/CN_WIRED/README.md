@@ -140,7 +140,7 @@ to change multiple bits in byte[5]. Here are examples of respective packets from
 
 Note 1F for on vs 0A for off. See also note in the following section.
 
-Testing on other conditioner types with CN_WIRED interface also reveals packets of type 3 and 4. At the moment
+Testing on other conditioner types with CN_WIRED interface also reveals packets of type 2 and 4. At the moment
 we don't know their structure. It's only known that their checksum algorithm is modified (we call it v2 checksum):
 sum of all nibbles including high nibble of byte[7] must equal to 0xF.
 
