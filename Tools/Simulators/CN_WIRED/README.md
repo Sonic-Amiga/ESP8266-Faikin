@@ -3,9 +3,6 @@
 This simulator is a development tool, intended for debugging Faikin code in the absense of a compatible
 air conditioner. It also aids protocol reverse engineering.
 
-Please note that at the moment CN_WIRED protocol is in the process of reverse engineering. Not all the
-details are clear.
-
 # Build requirements
 
 In order to build this code, a Qt framework (https://www.qt.io/product/framework) is required. On Windows
@@ -29,7 +26,7 @@ preferred, however, because the A/C interface uses 5V levels.
 
 ## Notice
 
-This protocol has been reverse engineered from FTXB35C2V1B conditioner model and a 3rd party
+This protocol has been reverse engineered from FTXB50CV1B conditioner model and a 3rd party
 ["Daichi DW-22"](https://daichi-aircon.com/product/DW22_B/) cloud-based controller (the web site is in russian).
 
 Protocol implementation in the bridge is to be considered a reference; it has been verified to work with the conditioner,
@@ -69,13 +66,8 @@ minimum and maximum possible packet durations:
 - Minimum (all zeros): 2600 + 1000 + (400 + 300) * 64 + 16000 + 2000 = 64600 microseconds
 - Maximum (all ones):  2600 + 1000 + (900 + 300) * 64 + 16000 + 2000 = 98400 microseconds
 
-The final terminator pulse of 2000 microseconds appears to be ignored by the conditioner; at least some models are able to
-receive and handle packets without it. Daichi controller does not send this pulse to the conditioner; however it rejects
-incoming packets from the conditioner if they do not have it. Original Daikin equipment (wired wall panels) send this pulse
-both ways, so we consider it mandatory.
-
-Since the Arduino bridge is also an RnD tool, it separately detects these pulses and report them as "_" with the timestamp for
-informational purposes.
+Since the Arduino bridge is also an RnD tool, it detects final 2000 microseconds low pulses separately and report them as "_"
+with the timestamp for informational purposes.
 
 ## Data packet format
 
@@ -84,12 +76,15 @@ informational purposes.
 The air conditioner sends sensor readout approximately every second, with the data having the following format:
 
  - byte[0] - Current indoors temperature, encoded as BCD
- - byte[1] - unknown
- - byte[2] - unknown
- - byte[3] ... byte[6] - 0 (unused)
+ - byte[1] - unknown. FTXB50C always reports 04.
+ - byte[2] - unknown. FTXB50C almost always reports 50; sometimes 00.
+ - byte[3] ... byte[5] - 0; likely unused
+ - byte[6] - unknown. FTXB50C always reports 10.
  - byte[7] - checksum and packet type indicator:
-             - High nibble - 4-bit sum of all other nibbles
+             - High nibble - 4-bit sum of all other nibbles (v1 checksum)
 			 - Low nibble - packet type = 0
+
+Nonzero unknown values can indicate availability of optional features, like vertical/horisontal swing or LED control.
 
 When an original IR remote control is used, conditioner sends  out a "mode changed" packet of the following format:
 
@@ -116,7 +111,7 @@ When an original IR remote control is used, conditioner sends  out a "mode chang
 			 Value of the remaining bits is unknown.
  - byte[6] - unknown
  - byte[7] - checksum and packet type indicator
-             - High nibble - 4-bit sum of all other nibbles
+             - High nibble - 4-bit sum of all other nibbles (v1 checksum)
 			 - Low nibble - packet type = 1
 
 Example of mode change packet:
@@ -137,12 +132,34 @@ This stands for:
 The conditioner is known to send "mode changed" packets three times in a row, perhaps for better reliability.
 There is no ACK/NAK signalling in this protocol.
 
+Vertical swing bit was figured out according to how Daichi controller interprets it. The actual conditioner was found
+to change multiple bits in byte[5]. Here are examples of respective packets from FTXB50C:
+
+18 18 00 01 08 1F 10 D1 - swing on
+18 18 00 01 08 0A 10 71 - swing off
+
+Note 1F for on vs 0A for off. See also note in the following section.
+
+Testing on other conditioner types with CN_WIRED interface also reveals packets of type 3 and 4. At the moment
+we don't know their structure. It's only known that their checksum algorithm is modified (we call it v2 checksum):
+sum of all nibbles including high nibble of byte[7] must equal to 0xF.
+
 ### From controller to conditioner
 
 Packets from the controller to the conditioner only specify operation modes. Their format is identical to
 "mode change" packet above, but with type set to 0. If type is set to any other value, the conditioner ignores the packet!
 
-Daichi controller is also known to send its control packets 4 times in a row when an action is issued by the user.
+Using 0x10 bitmask in byte[5] for swing control proved not to work. Daichi controller encodes swing in two bytes [5] and [6]:
+
+21 00 23 08 08 F0 11 90 - swing on
+24 04 50 00 00 00 10 00 - swing off
+
+In our implementation we use 70 11 instead of F0 11 for "swing on" because from other testers we know that bit 7 controls LED
+on/off. Daichi controller does not seem to support LED
+
+Daichi controller is also known to send its control packets 4 times in a row when an action is issued by the user. But
+this behavior appears not mandatory. Our implementation only sends packet once only when some settings are changed; and
+this proved to work fine.
 
 There is no way to query the conditioner about its current operation modes. The controller is supposed to track the
 current state internally, based on own controls and "mode changed" nofitications from the AC.
