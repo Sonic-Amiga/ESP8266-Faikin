@@ -53,9 +53,19 @@ enum
    PROTO_TYPE_S21,
    PROTO_TYPE_X50A,
    PROTO_TYPE_CN_WIRED,
-   PROTO_TYPE_MAX,
+   PROTO_TYPE_MAX
 };
 const char *const prototype[] = { "S21", "X50A", "CN_WIRED" };
+
+const char *const fans[] = {    // mapping A12345Q
+   "auto",
+   "low",
+   "lowMedium",
+   "medium",
+   "mediumHigh",
+   "high",
+   "night",
+};
 
 // We don't support pin inversion on 8266
 #define	PROTO_SCALE	1
@@ -92,15 +102,24 @@ have_5_fan_speeds (void)
    return fanstep == 1 || (!fanstep && proto_type () == PROTO_TYPE_S21);
 }
 
+#ifdef ELA
+static bleenv_t *bletemp = NULL;
+
 static int
 ble_sensor_connected (void)
 {
-#ifdef ELA
    return ble && *autob;
-#else
-   return 0;
-#endif
 }
+
+#else
+
+static int
+ble_sensor_connected (void)
+{
+   return 0;
+}
+
+#endif
 
 // The current aircon state and stats
 struct
@@ -1096,8 +1115,14 @@ mqtt_client_callback (int client, const char *prefix, const char *target, const 
             jo_stringf (s, "mode", "%c", toupper (*value));
       }
       if (!strcmp (suffix, "fan"))
-         jo_stringf (s, "fan", "%c",
-                     *value == 'l' ? '1' : *value == 'm' ? '3' : *value == 'h' ? '5' : *value == 'n' ? 'Q' : toupper (*value));
+      {
+         int f;
+         for (f = 0; f < sizeof (fans) / sizeof (*fans) && strcmp (fans[f], value); f++);
+         if (f < sizeof (fans) / sizeof (*fans))
+            jo_stringf (s, "fan", "%c", CONTROL_fan_VALUES[f]);
+         else
+            jo_stringf (s, "fan", "%c", *value);
+      }
       if (!strcmp (suffix, "swing"))
       {
          jo_bool (s, "swingh", strchr (value, 'H') ? 1 : 0);
@@ -1109,7 +1134,6 @@ mqtt_client_callback (int client, const char *prefix, const char *target, const 
          jo_bool (s, "powerful", *value == 'b');
       }
    }
-
    jo_close (s);
    jo_rewind (s);
    if (jo_next (s) == JO_TAG)
@@ -1910,31 +1934,41 @@ send_ha_config (void)
          jo_string (j, "icon", icon);
       return j;
    }
-   void addtemp (const char *tag, const char *icon)
+   void addtemp (uint64_t ok, const char *tag, const char *icon)
    {
       if (asprintf (&topic, "homeassistant/sensor/%s%s/config", revk_id, tag) >= 0)
       {
-         jo_t j = make (tag, icon);
-         jo_string (j, "name", tag);
-         jo_string (j, "dev_cla", "temperature");
-         jo_string (j, "stat_t", revk_id);
-         jo_string (j, "unit_of_meas", "°C");
-         jo_stringf (j, "val_tpl", "{{value_json.%s}}", tag);
-         revk_mqtt_send (NULL, 1, topic, &j);
+         if (!ok)
+            revk_mqtt_send_str (topic);
+         else
+         {
+            jo_t j = make (tag, icon);
+            jo_string (j, "name", tag);
+            jo_string (j, "dev_cla", "temperature");
+            jo_string (j, "stat_t", revk_id);
+            jo_string (j, "unit_of_meas", "°C");
+            jo_stringf (j, "val_tpl", "{{value_json.%s}}", tag);
+            revk_mqtt_send (NULL, 1, topic, &j);
+         }
          free (topic);
       }
    }
-   void addfreq (const char *tag, const char *unit, const char *icon)
+   void addfreq (uint64_t ok, const char *tag, const char *unit, const char *icon)
    {
       if (asprintf (&topic, "homeassistant/sensor/%s%s/config", revk_id, tag) >= 0)
       {
-         jo_t j = make (tag, icon);
-         jo_string (j, "name", tag);
-         jo_string (j, "dev_cla", "frequency");
-         jo_string (j, "stat_t", revk_id);
-         jo_string (j, "unit_of_meas", unit);
-         jo_stringf (j, "val_tpl", "{{value_json.%s}}", tag);
-         revk_mqtt_send (NULL, 1, topic, &j);
+         if (!ok)
+            revk_mqtt_send_str (topic);
+         else
+         {
+            jo_t j = make (tag, icon);
+            jo_string (j, "name", tag);
+            jo_string (j, "dev_cla", "frequency");
+            jo_string (j, "stat_t", revk_id);
+            jo_string (j, "unit_of_meas", unit);
+            jo_stringf (j, "val_tpl", "{{value_json.%s}}", tag);
+            revk_mqtt_send (NULL, 1, topic, &j);
+         }
          free (topic);
       }
    }
@@ -1969,13 +2003,8 @@ send_ha_config (void)
          if (have_5_fan_speeds ())
          {
             jo_array (j, "fan_modes");
-            jo_string (j, NULL, "auto");
-            jo_string (j, NULL, "1");
-            jo_string (j, NULL, "2");
-            jo_string (j, NULL, "3");
-            jo_string (j, NULL, "4");
-            jo_string (j, NULL, "5");
-            jo_string (j, NULL, "night");
+            for (int f = 0; f < sizeof (fans) / sizeof (*fans); f++)
+               jo_string (j, NULL, fans[f]);
             jo_close (j);
          }
       }
@@ -2010,14 +2039,53 @@ send_ha_config (void)
       revk_mqtt_send (NULL, 1, topic, &j);
       free (topic);
    }
-   if ((daikin.status_known & CONTROL_home) && (daikin.status_known & CONTROL_inlet))
-      addtemp ("inlet", "mdi:thermometer");     // Both defined so we used home as temp, so lets add inlet here
-   if (daikin.status_known & CONTROL_outside)
-      addtemp ("outside", "mdi:thermometer");
-   if (daikin.status_known & CONTROL_liquid)
-      addtemp ("liquid", "mdi:coolant-temperature");
-   if (daikin.status_known & CONTROL_fanrpm)
-      addfreq ("fanrpm", "rpm", "mdi:fan");
+   addtemp ((daikin.status_known & CONTROL_home) && (daikin.status_known & CONTROL_inlet), "inlet", "mdi:thermometer"); // Both defined so we used home as temp, so lets add inlet here
+   addtemp (daikin.status_known & CONTROL_outside, "outside", "mdi:thermometer");
+   addtemp (daikin.status_known & CONTROL_liquid, "liquid", "mdi:coolant-temperature");
+   addfreq (daikin.status_known & CONTROL_fanrpm, "fanfreq", "Hz", "mdi:fan");
+#ifdef ELA
+   void addhum (uint64_t ok, const char *tag, const char *icon)
+   {
+      if (asprintf (&topic, "homeassistant/sensor/%s%s/config", revk_id, tag) >= 0)
+      {
+         if (!ok)
+            revk_mqtt_send_str (topic);
+         else
+         {
+            jo_t j = make (tag, icon);
+            jo_string (j, "name", tag);
+            jo_string (j, "dev_cla", "humidity");
+            jo_string (j, "stat_t", revk_id);
+            jo_string (j, "unit_of_meas", "%");
+            jo_stringf (j, "val_tpl", "{{value_json.%s}}", tag);
+            revk_mqtt_send (NULL, 1, topic, &j);
+         }
+         free (topic);
+      }
+   }
+   void addbat (uint64_t ok, const char *tag, const char *icon)
+   {
+      if (asprintf (&topic, "homeassistant/sensor/%s%s/config", revk_id, tag) >= 0)
+      {
+         if (!ok)
+            revk_mqtt_send_str (topic);
+         else
+         {
+            jo_t j = make (tag, icon);
+            jo_string (j, "name", tag);
+            jo_string (j, "dev_cla", "battery");
+            jo_string (j, "stat_t", revk_id);
+            jo_string (j, "unit_of_meas", "%");
+            jo_stringf (j, "val_tpl", "{{value_json.%s}}", tag);
+            revk_mqtt_send (NULL, 1, topic, &j);
+         }
+         free (topic);
+      }
+   }
+   addtemp (ble && bletemp && bletemp->tempset, "bletemp", "mdi:thermometer");
+   addhum (ble && bletemp && bletemp->humset, "blehum", "mdi:water-percent");
+   addbat (ble && bletemp && bletemp->batset, "blebat", "mdi:battery-bluetooth-variant");
+#endif
 }
 
 static void
@@ -2051,23 +2119,24 @@ ha_status (void)
    if (daikin.status_known & CONTROL_fanrpm)
       jo_litf (j, "fanfreq", "%.1f", daikin.fanrpm / 60.0);
 #endif
+#ifdef ELA
+   if (ble && bletemp)
+   {
+      if (bletemp->tempset)
+         jo_litf (j, "bletemp", "%.2f", bletemp->temp / 100.0);
+      if (bletemp->humset)
+         jo_litf (j, "blehum", "%.2f", bletemp->hum / 100.0);
+      if (bletemp->batset)
+         jo_int (j, "blebat", bletemp->bat);
+   }
+#endif
    if (daikin.status_known & CONTROL_mode)
    {
       const char *modes[] = { "fan_only", "heat", "cool", "auto", "4", "5", "6", "dry" };       // FHCA456D
       jo_string (j, "mode", daikin.power ? autor && !lockmode ? "auto" : modes[daikin.mode] : "off");   // If we are controlling, it is auto
    }
    if (daikin.status_known & CONTROL_fan)
-   {
-      if (have_5_fan_speeds ())
-      {
-         const char *fans[] = { "auto", "1", "2", "3", "4", "5", "night" };     // A12345Q
-         jo_string (j, "fan", fans[daikin.fan]);
-      } else
-      {
-         const char *fans[] = { "auto", "low", "low", "medium", "high", "high", "auto" };       // A12345Q
-         jo_string (j, "fan", fans[daikin.fan]);
-      }
-   }
+      jo_string (j, "fan", fans[daikin.fan]);
    if (daikin.status_known & (CONTROL_swingh | CONTROL_swingv))
       jo_string (j, "swing", daikin.swingh & daikin.swingv ? "H+V" : daikin.swingh ? "H" : daikin.swingv ? "V" : "off");
    if (daikin.status_known & (CONTROL_econo | CONTROL_powerful))
@@ -2972,7 +3041,7 @@ app_main ()
                }
             }
          }
-         if (daikin.ha_send && protocol_set)
+         if (daikin.ha_send && protocol_set && daikin.talking)
          {
             send_ha_config ();
             ha_status ();       // Update status now sent
