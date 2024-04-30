@@ -2235,12 +2235,6 @@ int faikin_log_putc(int c) {
 void uart_setup (void)
 {
    esp_err_t err = 0;
-   if (!protocol_set)
-   {
-      proto++;
-      if (proto >= PROTO_TYPE_MAX * PROTO_SCALE)
-         proto = 0;
-   }
    ESP_LOGI (TAG, "Trying %s", proto_name());
    // This makes sure UART is clear and previously emitted log text has reached
    // its destination
