@@ -501,7 +501,7 @@ protocol_found (void)
    {
       jo_t j = jo_object_alloc ();
       jo_int (j, "protocol", proto);
-      revk_setting (j);
+      revk_settings_store (j, NULL, 1);
       jo_free (&j);
    }
 }
@@ -981,7 +981,7 @@ save_settings_if_changed (jo_t s)
 {
    if (s)
    {
-      revk_setting (s);
+      revk_settings_store (s, NULL, 1);
       jo_free (&s);
    }
 }
@@ -1146,7 +1146,7 @@ mqtt_client_callback (int client, const char *prefix, const char *target, const 
          {                      // Setting the control
             jo_t s = jo_object_alloc ();
             jo_litf (s, "autot", "%.1f", atof (value));
-            revk_setting (s);
+            revk_settings_store (s, NULL, 1);
             jo_free (&s);
          } else
             jo_lit (s, "temp", value);  // Direct controls
@@ -3103,7 +3103,7 @@ app_main ()
                   daikin.hysteresis = 0;        // We're off, so keep falling back until "approaching" (default when thermostat not set)
                   if (daikin.fansaved)
                   {
-                     daikin_set_v (fan, daikin.fansaved);       // revert fan speed
+                     daikin_set_v (fan, daikin.fansaved);       // revert fan speed (if set, which nofanauto would not do)
                      daikin.fansaved = 0;
                      samplestart ();    // Initial phase complete, start samples again.
                   }
