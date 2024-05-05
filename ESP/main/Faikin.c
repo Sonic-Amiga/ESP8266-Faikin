@@ -2173,6 +2173,27 @@ send_ha_config (void)
    addhum (ble && bletemp && bletemp->humset, "blehum", "mdi:water-percent");
    addbat (ble && bletemp && bletemp->batset, "blebat", "mdi:battery-bluetooth-variant");
 #endif
+#if 1
+   if (asprintf (&topic, "homeassistant/select/%sdemand/config", revk_id) >= 0)
+   {
+      if (!(daikin.status_known & CONTROL_demand))
+         revk_mqtt_send_str (topic);
+      else
+      {
+         jo_t j = make ("demand", NULL);
+         jo_string (j, "name", "Demand control");
+         jo_stringf (j, "cmd_t", "command/%s/demand", revk_id);
+         jo_stringf (j, "stat_t", "%s", revk_id);
+         jo_string (j, "val_tpl", "{{value_json.demand}}");
+         jo_array (j, "options");
+         for (int i = 30; i <= 100; i += 5)
+            jo_stringf (j, NULL, "%d", i);
+         jo_close (j);
+         revk_mqtt_send (NULL, 1, topic, &j);
+      }
+      free (topic);
+   }
+#endif
 }
 
 static void
@@ -2268,11 +2289,11 @@ void uart_setup (void)
       err = cn_wired_driver_install (GPIO_NUM_3, GPIO_NUM_1);
    } else {
       uart_config_t uart_config = {
-         .baud_rate = proto_type () == PROTO_TYPE_S21 ? 2400 : 9600,
+         .baud_rate = (proto_type () == PROTO_TYPE_S21) ? 2400 : 9600,
          .data_bits = UART_DATA_8_BITS,
          .parity = UART_PARITY_EVEN,
-         .stop_bits = proto_type () == PROTO_TYPE_S21 ? UART_STOP_BITS_2 : UART_STOP_BITS_1,
-         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
+         .stop_bits = (proto_type () == PROTO_TYPE_S21) ? UART_STOP_BITS_2 : UART_STOP_BITS_1,
+         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
       };
       if (!err)
          err = uart_param_config (uart, &uart_config);
