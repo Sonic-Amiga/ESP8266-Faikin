@@ -82,6 +82,12 @@ static httpd_handle_t webserver = NULL;
 static uint8_t protocol_set = 0;        // protocol confirmed
 static uint8_t proto = 0;
 
+static int
+uart_enabled (void)
+{
+   return uart != UART_NONE;
+}
+
 static uint8_t
 proto_type (void)
 {
@@ -91,7 +97,7 @@ proto_type (void)
 static const char *
 proto_name (void)
 {
-   return prototype[proto_type ()];
+   return uart_enabled () ? prototype[proto_type ()] : "MOCK";
 }
 
 // 'fanstep' setting overrides number of available fan speeds
@@ -361,12 +367,14 @@ check_length (uint8_t cmd, uint8_t cmd2, int len, int required, const uint8_t * 
 }
 
 static void
-comm_timeout (void)
+comm_timeout (uint8_t* buf, int rxlen)
 {
    daikin.talking = 0;
    b.loopback = 0;
    jo_t j = jo_comms_alloc ();
    jo_bool (j, "timeout", 1);
+   if (rxlen)
+       jo_base16 (j, "data", buf, rxlen);
    revk_error ("comms", &j);
 }
 
@@ -398,7 +406,7 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
             set_val (online, 1);
             set_bool (power, payload[0] == '1');
             set_val (mode, "30721003"[payload[1] & 0x7] - '0'); // FHCA456D mapped from AXDCHXF
-            set_val (heat, daikin.mode == FAIKIN_MODE_HEAT);      // Crude - TODO find if anything actually tells us this
+            set_val (heat, daikin.mode == FAIKIN_MODE_HEAT);   // Crude - TODO find if anything actually tells us this
             if (daikin.mode == FAIKIN_MODE_HEAT || daikin.mode == FAIKIN_MODE_COOL || daikin.mode == FAIKIN_MODE_DRY)
                set_temp (temp, s21_decode_target_temp (payload[2]));
             else if (!isnan (daikin.temp))
@@ -414,33 +422,33 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
       case '3':                // Seems to be an alternative to G6
          if (check_length (cmd, cmd2, len, 1, payload))
          {
-            set_val (powerful, payload[3] & 0x02 ? 1 : 0);
+            set_bool (powerful, payload[3] & 0x02);
          }
          break;
       case '5':                // 'G5' - swing status
          if (check_length (cmd, cmd2, len, 1, payload))
          {
             if (!noswingw)
-               set_val (swingv, (payload[0] & 1) ? 1 : 0);
+               set_bool (swingv, payload[0] & 1);
             if (!noswingh)
-               set_val (swingh, (payload[0] & 2) ? 1 : 0);
+               set_bool (swingh, payload[0] & 2);
          }
          break;
       case '6':                // 'G6' - "powerful" mode and some others
          if (check_length (cmd, cmd2, len, S21_PAYLOAD_LEN, payload))
          {
             if (!nopowerful)
-               set_val (powerful, payload[0] & 0x02 ? 1 : 0);
+               set_bool (powerful, payload[0] & 0x02);
             if (!nocomfort)
-               set_val (comfort, payload[0] & 0x40 ? 1 : 0);
+               set_bool (comfort, payload[0] & 0x40);
             if (!noquiet)
-               set_val (quiet, payload[0] & 0x80 ? 1 : 0);
+               set_bool (quiet, payload[0] & 0x80);
             if (!nostreamer)
-               set_val (streamer, payload[1] & 0x80 ? 1 : 0);
+               set_bool (streamer, payload[1] & 0x80);
             if (!nosensor)
-               set_val (sensor, payload[3] & 0x08 ? 1 : 0);
+               set_bool (sensor, payload[3] & 0x08);
             if (!noled)
-               set_val (led, (payload[3] & 0x0C) != 0x0C);
+               set_bool (led, (payload[3] & 0x0C) != 0x0C);
          }
          break;
       case '7':                // 'G7' - "demand" and "eco" mode
@@ -448,7 +456,7 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
          {
             if (!nodemand && payload[0] != '1')
                set_int (demand, 100 - (payload[0] - '0'));
-            set_val (econo, payload[1] & 0x02 ? 1 : 0);
+            set_bool (econo, payload[1] & 0x02);
          }
          break;
       case '9':
@@ -857,7 +865,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
          rxlen = uart_read_bytes (uart, buf, 1, READ_TIMEOUT);
          if (rxlen != 1)
          {
-            comm_timeout();
+            comm_timeout (NULL, 0);
             return RES_NOACK;
          }
          if (*buf == STX)
@@ -869,12 +877,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
    {
       if (uart_read_bytes (uart, buf + rxlen, 1, READ_TIMEOUT) != 1)
       {
-         daikin.talking = 0;
-         b.loopback = 0;
-         jo_t j = jo_comms_alloc ();
-         jo_bool (j, "timeout", 1);
-         jo_base16 (j, "data", buf, rxlen);
-         revk_error ("comms", &j);
+         comm_timeout (buf, txlen);
          return RES_NOACK;
       }
       rxlen++;
@@ -978,7 +981,7 @@ daikin_x50a_command (uint8_t cmd, int txlen, uint8_t * payload)
    int rxlen = uart_read_bytes (uart, buf, sizeof (buf), READ_TIMEOUT);
    if (rxlen <= 0)
    {
-      comm_timeout ();
+      comm_timeout (NULL, 0);
       return;
    }
    if (b.dumping)
@@ -2558,7 +2561,7 @@ app_main ()
    else
       esp_wifi_set_ps (WIFI_PS_NONE);
 #endif
-   if (uart == UART_NONE) // ESP8266: Fixed rx/tx pins
+   if (!uart_enabled ())
    {                            // Mock for interface development and testing
       ESP_LOGE (TAG, "Dummy operational mode (no tx/rx set)");
       daikin.status_known |=
@@ -2593,7 +2596,7 @@ app_main ()
          }
       }
       daikin.talking = 1;
-      if (uart != UART_NONE)
+      if (uart_enabled ())
       {                         // Poke UART
          uart_setup ();
          if ((proto_type () == PROTO_TYPE_X50A))
@@ -2661,7 +2664,7 @@ app_main ()
             daikin.maxtarget = (float) autot / autot_scale + (float) autor / autor_scale;
          }
          // Talk to the AC
-         if (uart != UART_NONE)
+         if (uart_enabled ())
          {
             if (proto_type () == PROTO_TYPE_ALTHERMA_S)
             {
@@ -2688,7 +2691,7 @@ app_main ()
                if (cn_wired_read_bytes (buf, CNW_READ_TIMEOUT) == 0)
                {
                   daikin.online = false;
-                  comm_timeout();
+                  comm_timeout (NULL, 0);
                }
                else
                {
