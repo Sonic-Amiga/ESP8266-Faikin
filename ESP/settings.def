@@ -15,6 +15,7 @@ bit	fahrenheit			.live=1					// Web shows Fahrenheit
 bit	no.s21				.live=1	.fix=1				// Do not try S21 protocol
 bit	no.x50a				.live=1	.fix=1				// Do not try X50A protocol
 bit	no.cnwired	0		.live=1	.fix=1				// Do not try CN_WIRED protocol
+bit	no.as		1		.live=1	.fix=1				// Do not try Altherma_S protocol
 bit	no.swaptx			.live=1	.fix=1				// Do not try inverted Tx (use GPIO setting only)
 bit	no.swaprx			.live=1	.fix=1				// Do not try inverted Rx (use GPIO setting only)
 
@@ -29,13 +30,17 @@ bit	no.quiet								// Unit does not have quiet mode
 bit	no.led		1							// Unit does not have LED control
 
 bit	no.faikinauto								// Do not show faikin auto controls
+bit	no.hvacaction	1							// Do not track/report hvac_action for Faikin auto mode in HA
 bit	no.fanauto								// Do not control fan in faikin auto mode
 
+bit	no.icons			.live=1					// Don't show icons on web UI
 
 bit	dark									// Dark mode
 bit	ha		1							// Home Assistance
 
+#ifdef CONFIG_BT_NIMBLE_ENABLED
 bit	ble									// Enable BLE
+#endif
 
 u8	fanstep									// Fan steps
 
@@ -53,17 +58,24 @@ u8	thermref	50		.live=1					// Percentage inlet rather than home temp used by yo
 u8	switchtemp	0.5		.live=1	.decimal=1	.old="switch10"	// Increase max (heating) or decrease min (cooling)
 u8	pushtemp	0.1		.live=1	.decimal=1	.old="push10"	// Increase min (heating) or decrease max (cooling)
 
-u8	cool.over	6		.live=1					// For cooling, push (decrease) target sent to aircon by this from min to force cooling
-u8	cool.back	6		.live=1					// For cooling, pull (increase) target sent to aircon by this from max to stop cooling
+s8	cool.over	6		.live=1					// For cooling, push (decrease) target sent to aircon by this from min to force cooling before reaching target
+u8	cool.back	6		.live=1					// For cooling, pull (increase) target sent to aircon by this from max to stop cooling after reaching target
 
-u8	heat.over	6		.live=1					// For heating, push (increase) target sent to aircon by this from max to force heating
-u8	heat.back	6		.live=1					// For heating, pull (decrease) target sent to aircon by this from min to stop heating
+s8	heat.over	6		.live=1					// For heating, push (increase) target sent to aircon by this from max to force heating before reaching target
+u8	heat.back	6		.live=1					// For heating, pull (decrease) target sent to aircon by this from min to stop heating after reaching target
+
+bit	temp.track	0		.live=1					// Set target temp based on Daikin measured temp not required target
+bit	temp.adjust	1		.live=1					// Adjust target temp allowing for different Daikin measure to external measure
+u16	temp.noflap	0		.live=1					// Min time between target temp changes (seconds).
 
 u16	auto.0				.live=1					// HHMM format turn off time
 u16	auto.1				.live=1					// HHMM format turn on time
 u16	auto.t				.live=1	.decimal=1			// Faikin auto target temperature
 u8	auto.r				.live=1	.decimal=1			// Faikin auto margin either side of autot
 bit	auto.p				.live=1					// Enable auto power on/off
+#ifdef CONFIG_BT_NIMBLE_ENABLED
+s	auto.b				.live=1					// BLE sensor ID
+#endif
 u8	auto.fmax	5		.live=1	.old="fmaxauto"			// Max fan setting when starting heat/cool way off from target
 u8	auto.ptemp	0.5		.live=1	.decimal=1	.old="autop10"	// Auto power on/off by temperature deviation by this amount
 
@@ -71,10 +83,12 @@ bit	thermostat			.live=1					// Faikin auto simple thermostat mode (heat to max,
 
 
 u8	t.min		16		.live=1					// Min temp setting of system
+u8	t.coolmin	16		.live=1					// Min temp setting for Faikin auto when cooling
 u8	t.max		32		.live=1					// Max temp setting of system
+u8	t.heatmax	32		.live=1					// Max temp setting for Faikin auto when heating
 u32	t.predicts	30							// Temp prediction sample time
 u32	t.predictt	120							// Temp prediction total time factor
-u32	t.sample		900							// Sample period for making adjustments
+u32	t.sample	900							// Sample period for making adjustments
 u32	t.control	600							// Control messages timeout
 
 #ifdef  CONFIG_IDF_TARGET_ESP32S3

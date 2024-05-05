@@ -53,9 +53,10 @@ enum
    PROTO_TYPE_S21,
    PROTO_TYPE_X50A,
    PROTO_TYPE_CN_WIRED,
+   PROTO_TYPE_ALTHERMA_S,
    PROTO_TYPE_MAX
 };
-const char *const prototype[] = { "S21", "X50A", "CN_WIRED" };
+const char *const prototype[] = { "S21", "X50A", "CN_WIRED", "Altherma_S" };
 
 const char *const fans[] = {    // mapping A12345Q
    "auto",
@@ -167,7 +168,20 @@ struct
    uint8_t remote:1;            // Remote control via MQTT
    uint8_t hysteresis:1;        // Thermostat hysteresis state
    uint8_t cnresend:2;          // Resends
+   uint8_t action:3;            // hvac_action
 } daikin = { 0 };
+
+enum
+{
+   HVAC_OFF,
+   HVAC_PREHEATING,
+   HVAC_HEATING,
+   HVAC_COOLING,
+   HVAC_DRYING,
+   HVAC_FAN,
+   HVAC_IDLE,
+};
+const char *const hvac_action[] = { "off", "preheating", "heating", "cooling", "drying", "fan", "idle" };
 
 const char *
 daikin_set_value (const char *name, uint8_t * ptr, uint64_t flag, uint8_t value)
@@ -323,11 +337,11 @@ jo_t s21debug = NULL;
 
 enum
 {
-   S21_OK,
-   S21_NAK,
-   S21_NOACK,
-   S21_BAD,
-   S21_WAIT,
+   RES_OK,
+   RES_NAK,
+   RES_NOACK,
+   RES_BAD,
+   RES_WAIT,
 };
 
 static int
@@ -444,6 +458,9 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
             set_temp (outside, (float) ((signed) payload[1] - 0x80) / 2);
          }
          break;
+      case 'M':                // Power meter
+         set_int (Wh, s21_decode_hex_sensor (payload) * 100);   // 100Wh units
+         break;
       }
    if (cmd == 'S')
    {
@@ -490,7 +507,7 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
          }
       }
    }
-   return S21_OK;
+   return RES_OK;
 }
 
 void
@@ -679,6 +696,88 @@ daikin_x50a_response (uint8_t cmd, int len, uint8_t * payload)
 // Timeout value for CN_WIRED reads (4 seconds)
 #define CNW_READ_TIMEOUT (4000 / portTICK_PERIOD_MS)
 
+void
+daikin_as_response (int len, uint8_t * res)
+{
+   set_val (online, 1);
+   switch (*res)
+   {
+   case 'U':
+      // TODO
+      break;
+   case 'T':
+      // TODO
+      break;
+   case 'P':
+      // TODO
+      break;
+   case 'S':
+      // TODO
+      break;
+   }
+}
+
+int
+daikin_as_command (int len, uint8_t * buf)
+{
+   uint8_t cs = 0;
+   for (int i = 0; i < len; i++)
+      cs += buf[i];
+   buf[len++] = ~cs;
+   if (b.dumping)
+   {
+      jo_t j = jo_comms_alloc ();
+      jo_stringf (j, "cmd", "%c", buf[1]);
+      jo_base16 (j, "dump", buf, len);
+      revk_info ("tx", &j);
+   }
+   uart_write_bytes (uart, (char *)buf, len);
+   uint8_t res[18];
+   len = uart_read_bytes (uart, res, sizeof (res), READ_TIMEOUT);
+   if (len < 0)
+   {
+      daikin.talking = 0;
+      return RES_NOACK;
+   }
+   cs = 0;
+   for (int i = 0; i < len - 1; i++)
+      cs += res[i];
+   cs = ~cs;
+   if (b.dumping && len > 0)
+   {
+      jo_t j = jo_comms_alloc ();
+      jo_stringf (j, "cmd", "%c", buf[1]);
+      jo_base16 (j, "dump", res, len);
+      revk_info ("rx", &j);
+   }
+   if (len != sizeof (res) || cs != res[len - 1] || *res != buf[1])
+   {
+      jo_t j = jo_comms_alloc ();
+      jo_base16 (j, "payload", res, len);
+      if (cs != res[len - 1])
+         jo_stringf (j, "bad-cs", "%02X", cs);
+      if (*res != 0x15 && *res != buf[1])
+         jo_stringf (j, "bad-cmd", "%c", buf[1]);
+      revk_error ("comms", &j);
+      if (*res == 0x15 && cs == res[len - 1])
+         return RES_NAK;
+      return RES_BAD;
+   }
+   if (*res == buf[1] && !protocol_set)
+      protocol_found ();
+   daikin_as_response (len, res);
+   return RES_OK;
+}
+
+int
+daikin_as_poll (char reg)
+{
+   uint8_t temp[3];
+   temp[0] = 0x02;
+   temp[1] = reg;
+   return daikin_as_command (2, temp);
+}
+
 int
 daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
 {
@@ -694,7 +793,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
       revk_info (daikin.talking || protofix ? "tx" : "cannot-tx", &j);
    }
    if (!daikin.talking && !protofix)
-      return S21_WAIT;          // Failed
+      return RES_WAIT;          // Failed
    uint8_t buf[256],
      temp;
    if (!snoop)
@@ -737,7 +836,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
             revk_error ("comms", &j);
          } else
             jo_free (&j);
-         return S21_NAK;
+         return RES_NAK;
       }
       // Unexpected reply, protocol broken
       daikin.talking = 0;
@@ -745,21 +844,21 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
       if (rxlen)
          jo_stringf (j, "value", "%02X", temp);
       revk_error ("comms", &j);
-      return S21_NOACK;
+      return RES_NOACK;
    }
    if (temp == STX)
       *buf = temp; // No ACK, response started instead.
    else
    {
       if (cmd == 'D')
-         return S21_OK;         // No response expected
+         return RES_OK;         // No response expected
       while (1)
       {
          rxlen = uart_read_bytes (uart, buf, 1, READ_TIMEOUT);
          if (rxlen != 1)
          {
             comm_timeout();
-            return S21_NOACK;
+            return RES_NOACK;
          }
          if (*buf == STX)
             break;
@@ -776,7 +875,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
          jo_bool (j, "timeout", 1);
          jo_base16 (j, "data", buf, rxlen);
          revk_error ("comms", &j);
-         return S21_NOACK;
+         return RES_NOACK;
       }
       rxlen++;
       if (buf[rxlen - 1] == ETX)
@@ -796,12 +895,19 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
       jo_stringn (j, c, (char *) buf + 3, rxlen - 5);
       revk_info ("rx", &j);
    }
+   int s21_bad (jo_t j)
+   {                            // Report error and return RES_BAD - also pause/flush
+      jo_base16 (j, "data", buf, rxlen);
+      revk_error ("comms", &j);
+      return RES_BAD;
+   }
    // Check checksum
    uint8_t c = s21_checksum (buf, rxlen);
    if (c != buf[rxlen - 2])
    {                            // Sees checksum of 03 actually sends as 05
-      comm_badcrc(c, buf, rxlen);
-      return S21_BAD;           // Ignore - it'll get resent some time
+      jo_t j = jo_comms_alloc ();
+      jo_stringf (j, "badsum", "%02X", c);
+      return s21_bad (j);
    }
    if (!snoop && rxlen >= 5 && buf[0] == STX && buf[rxlen - 1] == ETX && buf[1] == cmd)
    {                            // Loop back
@@ -815,7 +921,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
       jo_t j = jo_comms_alloc ();
       jo_bool (j, "loopback", 1);
       revk_error ("comms", &j);
-      return S21_OK;
+      return RES_OK;
    }
    b.loopback = 0;
    // If we've got an STX, S21 protocol is now confirmed; we won't change it any more
@@ -832,9 +938,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
          jo_bool (j, "badhead", 1);
       if (buf[1] != cmd + 1 || buf[2] != cmd2)
          jo_bool (j, "mismatch", 1);
-      jo_base16 (j, "data", buf, rxlen);
-      revk_error ("comms", &j);
-      return S21_BAD;
+      return s21_bad (j);
    }
    return daikin_s21_response (buf[S21_CMD0_OFFSET], buf[S21_CMD1_OFFSET], rxlen - S21_MIN_PKT_LEN, buf + S21_PAYLOAD_OFFSET);
 }
@@ -862,7 +966,7 @@ daikin_x50a_command (uint8_t cmd, int txlen, uint8_t * payload)
    uint8_t c = 0;
    for (int i = 0; i < 5 + txlen; i++)
       c += buf[i];
-   buf[5 + txlen] = 0xFF - c;
+   buf[5 + txlen] = ~c;
    if (b.dumping)
    {
       jo_t j = jo_comms_alloc ();
@@ -1310,9 +1414,13 @@ web_root (httpd_req_t * req)
    }
    void addb (const char *tag, const char *field, const char *help)
    {
+      if (noicons)
+         revk_web_send (req, "<td align=right style='white-space:pre;vertical-align:middle;'>%s</td>", help);
+      else
+         revk_web_send (req, "<td title=\"%s\" align=right>%s</td>", help, tag);
       revk_web_send (req,
-                     "<td align=right>%s</td><td title=\"%s\"><label class=switch><input type=checkbox id=\"%s\" onchange=\"w('%s',this.checked);\"><span class=slider></span></label></td>",
-                     tag, help, field, field);
+                     "<td title=\"%s\"><label class=switch><input type=checkbox id=\"%s\" onchange=\"w('%s',this.checked);\"><span class=slider></span></label></td>",
+                     help, field, field);
    }
    void addslider (const char *tag, const char *field, int min, int max, const char *step)
    {
@@ -1323,7 +1431,7 @@ web_root (httpd_req_t * req)
       addf (tag);
    }
    revk_web_send (req, "<tr>");
-   addb ("0/1", "power", "Main power");
+   addb ("Power", "power", "Main\npower");
    revk_web_send (req, "</tr>");
    add ("Mode", "mode", "Auto", "A", "Heat", "H", "Cool", "C", "Dry", "D", "Fan", "F", NULL);
    if (have_5_fan_speeds ())
@@ -1363,33 +1471,33 @@ web_root (httpd_req_t * req)
    {
       revk_web_send (req, "<tr>");
       if (daikin.status_known & CONTROL_econo)
-         addb ("Eco", "econo", "Eco mode");
+         addb ("♻", "econo", "Econo\nmode");
       if (daikin.status_known & CONTROL_powerful)
-         addb ("💪", "powerful", "Powerful mode");
+         addb ("💪", "powerful", "Powerful\nmode");
       if (daikin.status_known & CONTROL_led)
-         addb ("💡", "led", "LED high");
+         addb ("💡", "led", "LED\nhigh");
       revk_web_send (req, "</tr>");
    }
    if (daikin.status_known & (CONTROL_swingv | CONTROL_swingh | CONTROL_comfort))
    {
       revk_web_send (req, "<tr>");
       if (daikin.status_known & CONTROL_swingv)
-         addb ("↕", "swingv", "Vertical Swing");
+         addb ("↕", "swingv", "Vertical\nSwing");
       if (daikin.status_known & CONTROL_swingh)
-         addb ("↔", "swingh", "Horizontal Swing");
+         addb ("↔", "swingh", "Horizontal\nSwing");
       if (daikin.status_known & CONTROL_comfort)
-         addb ("🧸", "comfort", "Comfort mode");
+         addb ("🧸", "comfort", "Comfort\nmode");
       revk_web_send (req, "</tr>");
    }
    if (daikin.status_known & (CONTROL_streamer | CONTROL_sensor | CONTROL_quiet))
    {
       revk_web_send (req, "<tr>");
       if (daikin.status_known & CONTROL_streamer)
-         addb ("🦠", "streamer", "Stream/filter enable");
+         addb ("🦠", "streamer", "Stream/\nfilter");
       if (daikin.status_known & CONTROL_sensor)
-         addb ("🙆", "sensor", "Sensor mode");
+         addb ("🙆", "sensor", "Sensor\nmode");
       if (daikin.status_known & CONTROL_quiet)
-         addb ("🤫", "quiet", "Quiet outdoor unit");
+         addb ("🤫", "quiet", "Quiet\noutdoor");
       revk_web_send (req, "</tr>");
    }
    revk_web_send (req, "</table>"       //
@@ -1423,7 +1531,7 @@ web_root (httpd_req_t * req)
       revk_web_send (req, "<tr>");
       addtime ("On", "auto1");
       addtime ("Off", "auto0");
-      addb ("Auto", "autop", "Automatic power on/off");
+      addb ("Auto", "autop", "Auto\non/off");
       revk_web_send (req, "</tr>");
 #ifdef ELA
       if (ble)
@@ -1765,12 +1873,17 @@ legacy_web_get_control_info (httpd_req_t * req)
          jo_int (j, tag, 0);
       }
    jo_int (j, "dhh", 0);
+   if (daikin.mode <= 7)
+      jo_stringf (j, "b_mode", "%c", "64370002"[daikin.mode]);
    jo_litf (j, "b_stemp", "%.1f", daikin.temp);
    jo_int (j, "b_shum", 0);
    jo_int (j, "alert", 255);
    if (daikin.fan <= 6)
       jo_stringf (j, "f_rate", "%c", "A34567B"[daikin.fan]);
    jo_int (j, "f_dir", daikin.swingh * 2 + daikin.swingv);
+   if (daikin.fan <= 6)
+      jo_stringf (j, "b_f_rate", "%c", "A34567B"[daikin.fan]);
+   jo_int (j, "b_f_dir", daikin.swingh * 2 + daikin.swingv);
    for (int i = 1; i <= 7; i++)
       if (i != 6)
       {
@@ -2029,6 +2142,7 @@ send_ha_config (void)
             jo_t j = make (tag, icon);
             jo_string (j, "name", tag);
             jo_string (j, "dev_cla", "temperature");
+            jo_string (j, "state_class", "measurement");
             jo_string (j, "stat_t", revk_id);
             jo_string (j, "unit_of_meas", "°C");
             jo_stringf (j, "val_tpl", "{{value_json.%s}}", tag);
@@ -2048,6 +2162,7 @@ send_ha_config (void)
             jo_t j = make (tag, icon);
             jo_string (j, "name", tag);
             jo_string (j, "dev_cla", "frequency");
+            jo_string (j, "state_class", "measurement");
             jo_string (j, "stat_t", revk_id);
             jo_string (j, "unit_of_meas", unit);
             jo_stringf (j, "val_tpl", "{{value_json.%s}}", tag);
@@ -2065,6 +2180,7 @@ send_ha_config (void)
       jo_int (j, "min_temp", tmin);
       jo_int (j, "max_temp", tmax);
       jo_string (j, "temp_unit", "C");
+      jo_lit (j, "temp_step", (proto_type () == PROTO_TYPE_S21) ? "0.5" : "0.1");
       jo_string (j, "temp_cmd_t", "~/temp");
       jo_string (j, "temp_stat_t", revk_id);
       jo_string (j, "temp_stat_tpl", "{{value_json.target}}");
@@ -2078,6 +2194,11 @@ send_ha_config (void)
          jo_string (j, "mode_cmd_t", "~/mode");
          jo_string (j, "mode_stat_t", revk_id);
          jo_string (j, "mode_stat_tpl", "{{value_json.mode}}");
+         if (!nohvacaction)
+         {
+            jo_string (j, "action_topic", revk_id);
+            jo_string (j, "action_template", "{{value_json.action}}");
+         }
       }
       if (daikin.status_known & CONTROL_fan)
       {
@@ -2142,6 +2263,7 @@ send_ha_config (void)
             jo_t j = make (tag, icon);
             jo_string (j, "name", tag);
             jo_string (j, "dev_cla", "humidity");
+            jo_string (j, "state_class", "measurement");
             jo_string (j, "stat_t", revk_id);
             jo_string (j, "unit_of_meas", "%");
             jo_stringf (j, "val_tpl", "{{value_json.%s}}", tag);
@@ -2161,6 +2283,7 @@ send_ha_config (void)
             jo_t j = make (tag, icon);
             jo_string (j, "name", tag);
             jo_string (j, "dev_cla", "battery");
+            jo_string (j, "state_class", "measurement");
             jo_string (j, "stat_t", revk_id);
             jo_string (j, "unit_of_meas", "%");
             jo_stringf (j, "val_tpl", "{{value_json.%s}}", tag);
@@ -2169,6 +2292,7 @@ send_ha_config (void)
          free (topic);
       }
    }
+
    addtemp (ble && bletemp && bletemp->tempset, "bletemp", "mdi:thermometer");
    addhum (ble && bletemp && bletemp->humset, "blehum", "mdi:water-percent");
    addbat (ble && bletemp && bletemp->batset, "blebat", "mdi:battery-bluetooth-variant");
@@ -2194,6 +2318,22 @@ send_ha_config (void)
       free (topic);
    }
 #endif
+   if (asprintf (&topic, "homeassistant/sensor/%senergy/config", revk_id) >= 0)
+   {
+      if (!(daikin.status_known & CONTROL_Wh))
+         revk_mqtt_send_str (topic);
+      else
+      {
+         jo_t j = make ("energy", NULL);
+         jo_string (j, "name", "Lifetime energy");
+         jo_string (j, "stat_t", revk_id);
+         jo_string (j, "unit_of_meas", "kWh");
+         jo_string (j, "state_class", "total_increasing");
+         jo_stringf (j, "val_tpl", "{{(value_json.Wh|float)/1000}}");
+         revk_mqtt_send (NULL, 1, topic, &j);
+      }
+      free (topic);
+   }
 }
 
 static void
@@ -2224,6 +2364,8 @@ ha_status (void)
       jo_int (j, "comp", daikin.comp);
    if (daikin.status_known & CONTROL_demand)
       jo_int (j, "demand", daikin.demand);
+   if ((daikin.status_known & CONTROL_Wh) && daikin.Wh)
+      jo_int (j, "Wh", daikin.Wh);
 #if 0
    if (daikin.status_known & CONTROL_fanrpm)
       jo_int (j, "fanrpm", daikin.fanrpm);
@@ -2247,6 +2389,8 @@ ha_status (void)
       const char *modes[] = { "fan_only", "heat", "cool", "auto", "4", "5", "6", "dry" };       // FHCA456D
       jo_string (j, "mode", daikin.power ? autor && !lockmode ? "auto" : modes[daikin.mode] : "off");   // If we are controlling, it is auto
    }
+   if (!nohvacaction)
+      jo_string (j, "action", hvac_action[daikin.action]);
    if (daikin.status_known & CONTROL_fan)
       jo_string (j, "fan", fans[daikin.fan]);
    if (daikin.status_known & (CONTROL_swingh | CONTROL_swingv | CONTROL_comfort))
@@ -2339,6 +2483,7 @@ void
 revk_web_extra (httpd_req_t * req)
 {
    revk_web_setting (req, "Fahrenheit", "fahrenheit");
+   revk_web_setting (req, "Text rather than icons", "noicons");
    revk_web_setting (req, "Home Assistant", "ha");
    revk_web_setting (req, "Dark mode LED", "dark");
    if (!daikin.remote)
@@ -2347,7 +2492,7 @@ revk_web_extra (httpd_req_t * req)
       if (!nofaikinauto)
          revk_web_setting (req, "BLE Sensors", "ble");
    }
-   revk_web_setting (req, "Dump", "dump");
+   revk_web_setting (req, "Debug", "debug");
 }
 
 // --------------------------------------------------------------------------------
@@ -2440,7 +2585,8 @@ app_main ()
             proto = 0;
          if ((proto_type () == PROTO_TYPE_CN_WIRED && nocnwired) ||     //
              (proto_type () == PROTO_TYPE_S21 && nos21) ||      //
-             (proto_type () == PROTO_TYPE_X50A && nox50a))
+             (proto_type () == PROTO_TYPE_X50A && nox50a) ||    //
+             (proto_type () == PROTO_TYPE_ALTHERMA_S && noas))
          {                      // not a protocol we want to scan, so try again
             usleep (1000);      // Yeh, silly, but someone could configure to do nothing
             continue;
@@ -2517,7 +2663,25 @@ app_main ()
          // Talk to the AC
          if (uart != UART_NONE)
          {
-            if (proto_type () == PROTO_TYPE_CN_WIRED)
+            if (proto_type () == PROTO_TYPE_ALTHERMA_S)
+            {
+#define poll(a)                         \
+   static uint8_t a=2;                  \
+   if(a){                               \
+      int r=daikin_as_poll(*#a); \
+      if (r==RES_OK)                          \
+         a=100;                         \
+      else if(r==RES_NAK)                     \
+         a--;                           \
+   }                                          \
+   if(!daikin.talking)                        \
+      a=2;
+               poll (U);
+               poll (T);
+               poll (P);
+               poll (S);
+#undef poll
+            } else if (proto_type () == PROTO_TYPE_CN_WIRED)
             {                   // CN WIRED
                uint8_t buf[CNW_PKT_LEN];
 
@@ -2617,9 +2781,9 @@ app_main ()
    static uint8_t a##b##d=2;                  \
    if(a##b##d){                               \
       int r=daikin_s21_command(*#a,*#b,c,#d); \
-      if (r==S21_OK)                          \
+      if (r==RES_OK)                          \
          a##b##d=100;                         \
-      else if(r==S21_NAK)                     \
+      else if(r==RES_NAK)                     \
          a##b##d--;                           \
    }                                          \
    if(!daikin.talking)                        \
@@ -2649,9 +2813,15 @@ app_main ()
                   poll (F, C, 0,);
                   poll (F, G, 0,);
                   poll (F, K, 0,);
-                  poll (F, M, 0,);
+               }
+               poll (F, M, 0,);
+               if (debug)
+               {
                   poll (F, N, 0,);
                   poll (F, P, 0,);
+               }
+               if (debug)
+               {
                   poll (F, Q, 0,);
                   poll (F, S, 0,);
                   poll (F, T, 0,);
@@ -2854,8 +3024,7 @@ app_main ()
          }
 
          // Apply adjustment
-         // TODO: Why not minTarget and maxTarget (or OffsetHigh and OffsetLow) as setting instead of autor, switchtemp and pushtemp? 
-         if (daikin.control && daikin.power && !isnan (min) && !isnan (max))
+         if (!thermostat && daikin.control && daikin.power && !isnan (min) && !isnan (max))
          {
             if (hot)
             {
@@ -3107,20 +3276,31 @@ app_main ()
                // It looks like the ducted units are using inlet in some way, even when field settings say controller.
                if (daikin.mode == 3)
                   daikin_set_e (mode, hot ? "H" : "C"); // Out of auto
-
                // Temp set
-               float set = min + reference - measured_temp;     // Where we will set the temperature << WHY? IT WILL BE OVERWRITTEN 
+               float set = (min + max) / 2.0;   // Target temp we will be setting (before adjust for reference error and before limiting)
+               if (thermostat)
+                  set = (((hot && daikin.hysteresis) || (!hot && !daikin.hysteresis)) ? max : min);
+               if (temptrack)
+                  set = reference;      // Base target on current Daikin measured temp instead.
+               else if (tempadjust)
+                  set += reference - measured_temp;     // Adjust for reference not being measured_temp
                if ((hot && measured_temp < (daikin.hysteresis ? max : min))
                    || (!hot && measured_temp > (daikin.hysteresis ? min : max)))
-               {                // Apply heat/cool
+               {                // Apply heat/cool - i.e. force heating or cooling to definitely happen
                   if (thermostat)
                      daikin.hysteresis = 1;     // We're on, so keep going to "beyond"
                   if (hot)
-                     set = max + reference - measured_temp + heatover;  // Ensure heating by applying A/C offset to force it
-                  else
-                     set = min + reference - measured_temp - coolover;  // Ensure cooling by applying A/C offset to force it
+                  {
+                     set += heatover;   // Ensure heating by applying A/C offset to force it
+                     daikin.action = HVAC_HEATING;
+                  } else
+                  {
+                     set -= coolover;   // Ensure cooling by applying A/C offset to force it
+                     daikin.action = HVAC_COOLING;
+                  }
                } else
-               {                // At or beyond temp - stop heat/cool
+               {                // At or beyond temp - stop heat/cool - try and ensure it stops heating or cooling
+                  daikin.action = HVAC_IDLE;
                   daikin.hysteresis = 0;        // We're off, so keep falling back until "approaching" (default when thermostat not set)
                   if (daikin.fansaved)
                   {
@@ -3129,9 +3309,9 @@ app_main ()
                      samplestart ();    // Initial phase complete, start samples again.
                   }
                   if (hot)
-                     set = min + reference - measured_temp - heatback;  // Heating mode but apply negative offset to not actually heat any more than this
+                     set -= heatback;   // Heating mode but apply negative offset to not actually heat any more than this
                   else
-                     set = max + reference - measured_temp + coolback;  // Cooling mode but apply positive offset to not actually cool any more than this
+                     set += coolback;   // Cooling mode but apply positive offset to not actually cool any more than this
                }
 
                // Limit settings to acceptable values
@@ -3139,16 +3319,25 @@ app_main ()
                   set = roundf (set);   // CN_WIRED only does 1C steps
                else if (proto_type () == PROTO_TYPE_S21)
                   set = roundf (set * 2.0) / 2.0;       // S21 only does 0.5C steps
-               if (set < tmin)
-                  set = tmin;
-               if (set > tmax)
-                  set = tmax;
-               if (!isnan (reference))
+               if (set < (hot ? tmin : tcoolmin))
+                  set = (hot ? tmin : tcoolmin);
+               if (set > (hot ? theatmax : tmax))
+                  set = (hot ? theatmax : tmax);
+               static uint32_t flap = 0;
+               static uint8_t lastaction = 0;
+               static float lastset = 0;
+               if (!isnan (set) && (daikin.action != lastaction || (set != lastset && now > flap)))
+               {
+                  flap = now + tempnoflap;      // Hold off changes for preset time, unless change of mode
+                  lastaction = daikin.action;
+                  lastset = set;
                   daikin_set_t (temp, set);     // Apply temperature setting
+               }
             }
          } else
          {
             controlstop ();
+            daikin.action = (daikin.power ? HVAC_IDLE : HVAC_OFF);
          }
          // End of local auto controls
 
