@@ -133,7 +133,8 @@ ble_sensor_connected (void)
    return ble && *autob;
 }
 
-static int ble_sensor_enabled (void)
+static int
+ble_sensor_enabled (void)
 {
    return !!*autob;
 }
@@ -146,7 +147,8 @@ ble_sensor_connected (void)
    return 0;
 }
 
-static int ble_sensor_enabled (void)
+static int
+ble_sensor_enabled (void)
 {
    return 0;
 }
@@ -383,14 +385,14 @@ check_length (uint8_t cmd, uint8_t cmd2, int len, int required, const uint8_t * 
 }
 
 static void
-comm_timeout (uint8_t* buf, int rxlen)
+comm_timeout (uint8_t * buf, int rxlen)
 {
    daikin.talking = 0;
    b.loopback = 0;
    jo_t j = jo_comms_alloc ();
    jo_bool (j, "timeout", 1);
    if (rxlen)
-       jo_base16 (j, "data", buf, rxlen);
+      jo_base16 (j, "data", buf, rxlen);
    revk_error ("comms", &j);
 }
 
@@ -422,7 +424,7 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
             report_uint8 (online, 1);
             report_bool (power, payload[0] == '1');
             report_uint8 (mode, "30721003"[payload[1] & 0x7] - '0'); // FHCA456D mapped from AXDCHXF
-            report_uint8 (heat, daikin.mode == FAIKIN_MODE_HEAT);   // Crude - TODO find if anything actually tells us this
+            report_uint8 (heat, daikin.mode == FAIKIN_MODE_HEAT);    // Crude - TODO find if anything actually tells us this
             if (daikin.mode == FAIKIN_MODE_HEAT || daikin.mode == FAIKIN_MODE_COOL || daikin.mode == FAIKIN_MODE_DRY)
                report_float (temp, s21_decode_target_temp (payload[2]));
             else if (!isnan (daikin.temp))
@@ -871,7 +873,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int txlen, char *payload)
       return RES_NOACK;
    }
    if (temp == STX)
-      *buf = temp; // No ACK, response started instead.
+      *buf = temp;              // No ACK, response started instead.
    else
    {
       if (cmd == 'D')
@@ -1224,12 +1226,12 @@ mqtt_client_callback (int client, const char *prefix, const char *target, const 
          daikin.mintarget = min;
          daikin.maxtarget = max;
       }
-      if (!ble_sensor_connected())
+      if (!ble_sensor_connected ())
       {
          daikin.env = env;
          daikin.status_known |= CONTROL_env;    // So we report it
       }
-      if (!autor && !ble_sensor_enabled())
+      if (!autor && !ble_sensor_enabled ())
          daikin.remote = 1;     // Hides local automation settings
       xSemaphoreGive (daikin.mutex);
       return ret ? : "";
@@ -1473,7 +1475,7 @@ web_root (httpd_req_t * req)
       addt ("Liquid", "Liquid coolant temperature");
    if (daikin.status_known & CONTROL_outside)
       addt ("Outside", "Outside temperature");
-   if ((daikin.status_known & CONTROL_env) && !ble_sensor_connected())
+   if ((daikin.status_known & CONTROL_env) && !ble_sensor_connected ())
       addt ("Env", "External reference temperature");
 #ifdef ELA
    if (ble)
@@ -1519,7 +1521,7 @@ web_root (httpd_req_t * req)
       revk_web_send (req, "</tr>");
    }
    revk_web_send (req, "</table>"       //
-                  "<p id=offline style='display:none'><b>System is off line.</b></p>"   //
+                  "<p id=offline style='display:none'><b>System is offline.</b></p>"    //
                   "<p id=loopback style='display:none'><b>System is in loopback test.</b></p>"  //
                   "<p id=shutdown style='display:none;color:red;'></p>" //
                   "<p id=slave style='display:none'>❋ Another unit is controlling the mode, so this unit is not operating at present.</p>"    //
@@ -2424,7 +2426,8 @@ int faikin_log_putc(int c) {
    return c;
 }
 
-void uart_setup (void)
+void
+uart_setup (void)
 {
    esp_err_t err = 0;
    ESP_LOGI (TAG, "Trying %s", proto_name());
@@ -3084,7 +3087,7 @@ app_main ()
             }
 
             // Force high fan at the beginning if not fan in AUTO 
-            //  and temperatur not close to target temp
+            //  and temperature not close to target temp
             // TODO: Use of switchtemp for different purposes is confusing (ref. min/max a couple of lines above)
             if (!nofanauto && daikin.fan
                 && ((hot && measured_temp < min - 2 * (float) switchtemp / switchtemp_scale)
@@ -3183,11 +3186,10 @@ app_main ()
                {                // Power, mode, fan, automation
                   if (daikin.power)     // Daikin is on
                   {
-                     int step = (fanstep ? : (proto_type () == PROTO_TYPE_S21) ? 1 : 2);        // TODO: What does "fanstep ? : (pro..."? What if fanstep==0?
+                     int step = (fanstep ? : (proto_type () == PROTO_TYPE_S21) ? 1 : 2);
 
                      // A lot more beyond than total counts and no approaching in the last two cycles
                      // Time to switch modes (heating/cooling) and reduce fan to minimum
-                     // TODO: Smells like too much overshoot...
                      if ((countBeyond2Samples * 2 > count_total_2_samples || daikin.slave) && !count_approaching_2_samples)
                      {          // Mode switch
                         if (!lockmode)
@@ -3204,18 +3206,14 @@ app_main ()
                      }
                      // Less approaching, but still close to min in heating or max in cooling
                      // Time to reduce the fan a bit
-                     // TODO: Better wait until at the desired temp instead of tickeling the limits?
-                     // TODO: Not sure about the purpose of daikin.slave 
                      else if (!nofanauto && count_approaching_2_samples * 10 < count_total_2_samples * 7
                               && step && daikin.fan > 1 && daikin.fan <= 5)
                      {
                         jo_int (j, "set-fan", daikin.fan - step);
                         daikin_set_v (fan, daikin.fan - step);  // Reduce fan
-                        // TODO: Why not use quit mode as lowest fan step?
                      }
                      // A lot of approaching means still far away from desired temp
                      // Time to increase the fan speed
-                     // TODO: Not sure about the purpose of daikin.slave 
                      else if (!nofanauto && !daikin.slave
                               && count_approaching_2_samples * 10 > count_total_2_samples * 9
                               && step && daikin.fan >= 1 && daikin.fan < autofmax)
@@ -3233,7 +3231,6 @@ app_main ()
                      }
                   }
                   // Daikin is off
-                  // TODO: What's the purpose of daikin.remote?
                   else if ((autop || (daikin.remote && autoptemp))      // AutoP Mode only
                            && (daikin.countApproaching == daikin.countTotal || daikin.countBeyond == daikin.countTotal) // full cycle approaching or full cycle beyond
                            && (measured_temp >= max + (float) autoptemp / autoptemp_scale       // temp out of desired range
@@ -3248,7 +3245,7 @@ app_main ()
                      }
                   }
                }
-               if (count_total_2_samples)       // after a cycle, send automation data   // TODO: Isn't this always the case?
+               if (count_total_2_samples)       // after a cycle, send automation data  
                   revk_info ("automation", &j);
                else
                   jo_free (&j);
