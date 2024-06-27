@@ -1164,7 +1164,7 @@ mqtt_client_callback (int client, const char *prefix, const char *target, const 
    if (!strcmp (suffix, "connect") || !strcmp (suffix, "status"))
    {
       daikin.status_report = 1; // Report status on connect
-      if (ha)
+      if (haenable)
          daikin.ha_send = 1;
    }
    if (!strcmp (suffix, "send") && jo_here (j) == JO_STRING)
@@ -2150,7 +2150,7 @@ send_ha_config (void)
          jo_string (j, "icon", icon);
       return j;
    }
-   void addtemp (uint64_t ok, const char *tag, const char *icon)
+   void addtemp (uint64_t ok, const char *tag, const char *name, const char *icon)
    {
       if (asprintf (&topic, "homeassistant/sensor/%s%s/config", revk_id, tag) >= 0)
       {
@@ -2159,7 +2159,7 @@ send_ha_config (void)
          else
          {
             jo_t j = make (tag, icon);
-            jo_string (j, "name", tag);
+            jo_string (j, "name", name);
             jo_string (j, "dev_cla", "temperature");
             jo_string (j, "state_class", "measurement");
             jo_string (j, "stat_t", revk_id);
@@ -2170,7 +2170,7 @@ send_ha_config (void)
          free (topic);
       }
    }
-   void addfreq (uint64_t ok, const char *tag, const char *unit, const char *icon)
+   void addfreq (uint64_t ok, const char *tag, const char *name, const char *unit, const char *icon)
    {
       if (asprintf (&topic, "homeassistant/sensor/%s%s/config", revk_id, tag) >= 0)
       {
@@ -2185,6 +2185,26 @@ send_ha_config (void)
             jo_string (j, "stat_t", revk_id);
             jo_string (j, "unit_of_meas", unit);
             jo_stringf (j, "val_tpl", "{{value_json.%s}}", tag);
+            revk_mqtt_send (NULL, 1, topic, &j);
+         }
+         free (topic);
+      }
+   }
+   void addswitch (uint64_t ok, const char *tag, const char *name, const char *icon)
+   {
+      if (asprintf (&topic, "homeassistant/switch/%s%s/config", revk_id, tag) >= 0)
+      {
+         if (!ok)
+            revk_mqtt_send_str (topic);
+         else
+         {
+            jo_t j = make (tag, icon);
+            jo_string (j, "name", name);
+            jo_string (j, "stat_t", revk_id);
+            jo_stringf (j, "cmd_t", "command/%s/%s", revk_id, tag);
+            jo_stringf (j, "val_tpl", "{{value_json.%s}}", tag);
+            jo_bool (j, "pl_on", 1);
+            jo_bool (j, "pl_off", 0);
             revk_mqtt_send (NULL, 1, topic, &j);
          }
          free (topic);
@@ -2265,13 +2285,15 @@ send_ha_config (void)
       revk_mqtt_send (NULL, 1, topic, &j);
       free (topic);
    }
-   addtemp ((daikin.status_known & CONTROL_home) && (daikin.status_known & CONTROL_inlet), "inlet", "mdi:thermometer"); // Both defined so we used home as temp, so lets add inlet here
-   addtemp (daikin.status_known & CONTROL_outside, "outside", "mdi:thermometer");
-   addtemp (daikin.status_known & CONTROL_liquid, "liquid", "mdi:coolant-temperature");
-   addfreq (daikin.status_known & CONTROL_comp, "comp", "Hz", "mdi:sine-wave");
-   addfreq (daikin.status_known & CONTROL_fanrpm, "fanfreq", "Hz", "mdi:fan");
+   addtemp ((daikin.status_known & CONTROL_home) && (daikin.status_known & CONTROL_inlet), "inlet", "Inlet", "mdi:thermometer");        // Both defined so we used home as temp, so lets add inlet here
+   addtemp (daikin.status_known & CONTROL_outside, "outside", "Outside", "mdi:thermometer");
+   addtemp (daikin.status_known & CONTROL_liquid, "liquid", "Liquid", "mdi:coolant-temperature");
+   addfreq (daikin.status_known & CONTROL_comp, "comp", "Compressor", hacomprpm ? "rpm" : "Hz", "mdi:sine-wave");
+   addfreq (daikin.status_known & CONTROL_fanrpm, "fanfreq", "Fan", hafanrpm ? "rpm" : "Hz", "mdi:fan");
+   addswitch (haswitches && (daikin.status_known & CONTROL_power), "power", "Power", "mdi:power");
+   addswitch (haswitches && (daikin.status_known & CONTROL_streamer), "streamer", "Streamer", "mdi:air-filter");
 #ifdef ELA
-   void addhum (uint64_t ok, const char *tag, const char *icon)
+   void addhum (uint64_t ok, const char *tag, const char *name, const char *icon)
    {
       if (asprintf (&topic, "homeassistant/sensor/%s%s/config", revk_id, tag) >= 0)
       {
@@ -2280,7 +2302,7 @@ send_ha_config (void)
          else
          {
             jo_t j = make (tag, icon);
-            jo_string (j, "name", tag);
+            jo_string (j, "name", name);
             jo_string (j, "dev_cla", "humidity");
             jo_string (j, "state_class", "measurement");
             jo_string (j, "stat_t", revk_id);
@@ -2291,7 +2313,7 @@ send_ha_config (void)
          free (topic);
       }
    }
-   void addbat (uint64_t ok, const char *tag, const char *icon)
+   void addbat (uint64_t ok, const char *tag, const char *name, const char *icon)
    {
       if (asprintf (&topic, "homeassistant/sensor/%s%s/config", revk_id, tag) >= 0)
       {
@@ -2300,7 +2322,7 @@ send_ha_config (void)
          else
          {
             jo_t j = make (tag, icon);
-            jo_string (j, "name", tag);
+            jo_string (j, "name", name);
             jo_string (j, "dev_cla", "battery");
             jo_string (j, "state_class", "measurement");
             jo_string (j, "stat_t", revk_id);
@@ -2311,10 +2333,9 @@ send_ha_config (void)
          free (topic);
       }
    }
-
-   addtemp (ble && bletemp && bletemp->tempset, "bletemp", "mdi:thermometer");
-   addhum (ble && bletemp && bletemp->humset, "blehum", "mdi:water-percent");
-   addbat (ble && bletemp && bletemp->batset, "blebat", "mdi:battery-bluetooth-variant");
+   addtemp (ble && bletemp && bletemp->tempset, "bletemp", "BLE Temp", "mdi:thermometer");
+   addhum (ble && bletemp && bletemp->humset, "blehum", "BLE Humidity", "mdi:water-percent");
+   addbat (ble && bletemp && bletemp->batset, "blebat", "BLE Battery", "mdi:battery-bluetooth-variant");
 #endif
 #if 1
    if (asprintf (&topic, "homeassistant/select/%sdemand/config", revk_id) >= 0)
@@ -2358,7 +2379,7 @@ send_ha_config (void)
 static void
 ha_status (void)
 {                               // Home assistant message
-   if (!ha)
+   if (!haenable)
       return;
    jo_t j = jo_object_alloc ();
    if (b.loopback)
@@ -2379,19 +2400,19 @@ ha_status (void)
       jo_litf (j, "outside", "%.2f", daikin.outside);
    if (daikin.status_known & CONTROL_liquid)
       jo_litf (j, "liquid", "%.2f", daikin.liquid);
-   if (daikin.status_known & CONTROL_comp)
-      jo_int (j, "comp", daikin.comp);
    if (daikin.status_known & CONTROL_demand)
       jo_int (j, "demand", daikin.demand);
    if ((daikin.status_known & CONTROL_Wh) && daikin.Wh)
       jo_int (j, "Wh", daikin.Wh);
-#if 0
    if (daikin.status_known & CONTROL_fanrpm)
-      jo_int (j, "fanrpm", daikin.fanrpm);
-#else
-   if (daikin.status_known & CONTROL_fanrpm)
-      jo_litf (j, "fanfreq", "%.1f", daikin.fanrpm / 60.0);
-#endif
+   {
+      if (hafanrpm)
+         jo_int (j, "fanfreq", daikin.fanrpm);
+      else
+         jo_litf (j, "fanfreq", "%.1f", daikin.fanrpm / 60.0);
+   }
+   if (daikin.status_known & CONTROL_comp)
+      jo_int (j, "comp", (hacomprpm ? 60 : 1) * daikin.comp);
 #ifdef ELA
    if (ble && bletemp)
    {
@@ -2504,7 +2525,7 @@ revk_web_extra (httpd_req_t * req)
 {
    revk_web_setting (req, "Fahrenheit", "fahrenheit");
    revk_web_setting (req, "Text rather than icons", "noicons");
-   revk_web_setting (req, "Home Assistant", "ha");
+   revk_web_setting (req, "Home Assistant", "haenable");
    revk_web_setting (req, "Dark mode LED", "dark");
    if (!daikin.remote)
    {
@@ -2637,7 +2658,7 @@ app_main ()
          daikin.control_changed = 0;
          daikin.online = 1;
       }
-      if (ha)
+      if (haenable)
          daikin.ha_send = 1;
       do
       {
@@ -2661,7 +2682,7 @@ app_main ()
                   if (!strcmp (e->name, autob))
                   {
                      bletemp = e;
-                     if (ha)
+                     if (haenable)
                         daikin.ha_send = 1;
                      break;
                   }
