@@ -588,7 +588,7 @@ daikin_cn_wired_incoming_packet (uint8_t * payload)
    }
 
    // We're now online
-   daikin.online = true;
+   report_uint8 (online, 1);
 
    if (!protocol_set)
    {
@@ -619,7 +619,6 @@ daikin_cn_wired_incoming_packet (uint8_t * payload)
    {
       int8_t new_mode = cnw_decode_mode(payload);
 
-      report_uint8 (online, 1);
       report_uint8 (power, !(payload[CNW_MODE_OFFSET] & CNW_MODE_POWEROFF));
       if (new_mode != FAIKIN_MODE_INVALID)
          report_uint8 (mode, new_mode);
@@ -2645,11 +2644,6 @@ app_main ()
             );
             daikin_x50a_command (0xBA, 0, NULL);
             daikin_x50a_command (0xBB, 0, NULL);
-         }
-         if (protocol_set && daikin.online != daikin.talking)
-         {
-            daikin.online = daikin.talking;
-            daikin.status_changed = 1;
          }
       } else
       {                         // Mock configuration for interface testing
