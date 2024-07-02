@@ -2731,8 +2731,12 @@ app_main ()
                   
                   if (daikin.control_changed)
                   {
-                     // Send new modes to the AC
                      int new_fan;
+
+                     // Send new modes to the AC. We have just received a data packet; CN_WIRED devices
+                     // may dislike being interrupted, so we delay for 20 ms in order for the packet
+                     // trailer pulse (which we ignore) passes
+                     sys_msleep(20);
 
                      // These A/Cs from internal perspective have 6 fan speeds: Eco, Auto, 1, 2, 3, Powerful
                      // For more advanced A/Cs Eco and Powerful are special modes, they can be combined with fan speed settings,
@@ -2789,25 +2793,15 @@ app_main ()
                         revk_info (daikin.talking ? "tx" : "cannot-tx", &j);
                      }
 
-                     // Some conditioners (FTN15PV1L) have been reported not to accept the command on first try
-                     // From reverse engineering we know that Daichi controller sends data 3 times, so do we.
-                     // That's the only thing we can do to ensure reception because the protocol doesn't provide
-                     // any sort of ACK signalling.
-                     for (int i = 0; i < 3; i++) {
-                        // Delay before sending. On first iteration we have just received a data packet;
-                        // CN_WIRED devices may dislike being interrupted, so we delay for 20 ms in order
-                        // for the packet trailer pulse (which we ignore) to pass
-                        sys_msleep(20);
-                        cn_wired_write_bytes(buf);
+                     if (cn_wired_write_bytes(buf)) {
+                        // Modes sent
+                        daikin.control_changed = 0;
+                        // This validates fan speed controls by parsing back value
+                        // from the packet we've just composed and sent. We're reusing
+                        // receiving code for simplicity. This implements the second part
+                        // of mutual exclusion logic, described above.
+                        cn_wired_report_fan_speed(buf);
                      }
-
-                     // Modes sent
-                     daikin.control_changed = 0;
-                     // This validates fan speed controls by parsing back value
-                     // from the packet we've just composed and sent. We're reusing
-                     // receiving code for simplicity. This implements the second part
-                     // of mutual exclusion logic, described above.
-                     cn_wired_report_fan_speed(buf);
                   }
                }
             } else if (proto_type () == PROTO_TYPE_S21)

@@ -4,8 +4,8 @@
 #include <esp_timer.h>
 #include <FreeRTOS.h>
 #include <limits.h>
-#include <semphr.h>
 #include <string.h>
+#include <task.h>
 
 #include <driver/hw_timer.h>
 #include <esp8266/gpio_struct.h>
@@ -37,7 +37,7 @@ struct CN_Wired_Receiver {
     int        rx_bytes;    // Bytes counter
     int        rx_bits;     // Bits counter
     gpio_num_t pin;
-    SemaphoreHandle_t rx_sem;
+    TaskHandle_t task;
 };
 
 enum State {
@@ -59,18 +59,7 @@ struct CN_Wired_Transmitter {
     int        t_one;
     int        t_delay;
     int        t_end;
-    SemaphoreHandle_t tx_sem;
 };
-
-// A handy wrapper to avoid copypasting
-static void wakeup(SemaphoreHandle_t sem)
-{
-    BaseType_t task_woken = 0;
-    xSemaphoreGiveFromISR(sem, &task_woken);
-    if (task_woken == pdTRUE) {
-        portYIELD_FROM_ISR();
-    }
-}
 
 // We need to act quickly-quickly-quickly for better timings. Standard drivers
 // do lots of unnecessary stuff (like argument checks), here we're avoiding
@@ -145,7 +134,7 @@ static void rx_interrupt (void* arg)
 
                 if (rx->rx_bytes == RX_LEN) {
                     // Packet complete, signal ready to read
-                    wakeup(rx->rx_sem);
+                    vTaskNotifyGiveFromISR(rx->task, NULL);
                 } else {
                     // Prepare the next byte. We don't check for overflow for speed, that's
                     // why we need one spare trailing byte
@@ -202,7 +191,6 @@ void tx_interrupt (void* arg)
         // LOW->HIGH, no next_bit set. We've just completed our final pulse and turning idle.
         tx_set_high(tx);
         tx->tx_state = TX_IDLE;
-        wakeup(tx->tx_sem);
     }
 
     tx->line_state = new_state;
@@ -212,18 +200,15 @@ esp_err_t cn_wired_driver_install (gpio_num_t rx, gpio_num_t tx)
 {
     esp_err_t err;
 
-    if (rx_obj.rx_sem || tx_obj.tx_sem) {
-        return ESP_FAIL; // Already initialized
-    }
-
     rx_obj.state    = 1;
     rx_obj.rx_bytes = -1; // "Wait for sync" state
     rx_obj.pin      = rx;
-    rx_obj.rx_sem   = xSemaphoreCreateBinary();
+    rx_obj.task     = xTaskGetCurrentTaskHandle();
+
+    xTaskNotifyStateClear(rx_obj.task);
 
     tx_obj.tx_state  = TX_IDLE;
     tx_obj.gpio_mask = 1 << tx;
-    tx_obj.tx_sem    = xSemaphoreCreateBinary();
 
     gpio_pad_select_gpio(rx);
     gpio_pad_select_gpio(tx);
@@ -258,20 +243,11 @@ void cn_wired_driver_delete (void)
 {
     hw_timer_deinit ();
     gpio_uninstall_isr_service ();
-
-    if (rx_obj.rx_sem) {
-        vSemaphoreDelete(rx_obj.rx_sem);
-        rx_obj.rx_sem = NULL;
-    }
-    if (tx_obj.tx_sem) {
-        vSemaphoreDelete(tx_obj.tx_sem);
-        tx_obj.tx_sem = NULL;
-    }
 }
 
 int cn_wired_read_bytes (uint8_t *buffer, TickType_t timeout)
 {
-    if (!xSemaphoreTake(rx_obj.rx_sem, timeout))
+    if (!xTaskNotifyWait(0x00, ULONG_MAX, NULL, timeout ))
         return 0;
 
     // Drop the prefix 0x80 byte, containing start bit
@@ -284,7 +260,7 @@ int cn_wired_read_bytes (uint8_t *buffer, TickType_t timeout)
 int cn_wired_write_bytes (const uint8_t *buffer)
 {
     if (tx_obj.tx_state != TX_IDLE)
-        return 0; // Should not happen
+        return 0; // Busy, retry plz
 
     memcpy(tx_obj.buffer, buffer, CNW_PKT_LEN);
     tx_obj.tx_state   = TX_DATA;
@@ -309,9 +285,6 @@ int cn_wired_write_bytes (const uint8_t *buffer)
     tx_obj.t_space  = timer_ticks(SPACE_LENGTH);
     tx_obj.t_delay  = timer_ticks(END_DELAY);
     tx_obj.t_end    = timer_ticks(END_LENGTH);
-
-    // Wait for completion
-    xSemaphoreTake(tx_obj.tx_sem, portMAX_DELAY);
 
     return CNW_PKT_LEN;
 }
