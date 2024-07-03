@@ -633,6 +633,78 @@ daikin_cn_wired_incoming_packet (uint8_t * payload)
 }
 
 void
+daikin_cn_wired_send_modes (void)
+{
+   int new_fan;
+   uint8_t buf[CNW_PKT_LEN];
+
+   // These A/Cs from internal perspective have 6 fan speeds: Eco, Auto, 1, 2, 3, Powerful
+   // For more advanced A/Cs Eco and Powerful are special modes, they can be combined with fan speed settings,
+   // so for us these two settings are separate on/off controls. And here are emulating this behavior
+   // with the following algorithm:
+   // - If the user enables Powerful, Eco is turned off, fan speed is remembered
+   // - If the user enables Eco, Powerful is turned off, fan speed is remembered
+   // - If the user disables Eco or Powerful (only one can be enabled!), fan speed is reset to remembered value
+   // - If the user selects fan speed, both Powerful and Eco are turned off.
+   // The first line implement this exact logic. We check which control of the three
+   // the user has frobbed, and act accordingly
+   if (daikin.control_changed & CONTROL_fan) {
+      // The user has touched fan speed control, set the speed
+      new_fan = cnw_encode_fan(daikin.fan);
+   } else if (daikin.control_changed & CONTROL_econo) {
+      // The user has touched Econo switch, act according to new state
+      new_fan = daikin.econo ? CNW_FAN_ECO : cnw_encode_fan(daikin.fan);
+   } else if (daikin.control_changed & CONTROL_powerful) {
+      // The user has touched Powerful switch, act according to new state
+      new_fan = daikin.powerful ? CNW_FAN_POWERFUL : cnw_encode_fan(daikin.fan);
+      // If the user hasn't changed anything, we still have to fill in current fan speed.
+      // This relies on the fact that controls are always in valid state, and only
+      // one of Powerful or Econo can be active. Even if somehow not true, the order
+      // of precedence is as coded here. We'll force our controls to a valid state
+      // by calling cn_wired_report_fan_speed()
+   } else if (daikin.powerful) {
+      new_fan = CNW_FAN_POWERFUL;
+   } else if (daikin.econo) {
+      new_fan = CNW_FAN_ECO;
+   } else {
+      new_fan = cnw_encode_fan(daikin.fan);
+   }
+
+   buf[CNW_TEMP_OFFSET]     = encode_bcd(daikin.temp);
+   buf[1]                   = 0x04; // These two bytes are perhaps not even used, but from experiments
+   buf[2]                   = 0x50; // we know these packets work. So let's stick to known working values.
+   buf[CNW_MODE_OFFSET]     = cnw_encode_mode(daikin.mode, daikin.power);
+   buf[CNW_FAN_OFFSET]      = new_fan;
+   // Experimental. Setting CNW_V_SWING bit in CNW_SPECIALS_OFFSET does not work;
+   // the conditioner doesn't understand it.
+   // Here we're replicating what Daichi controller does, with one little exception.
+   // Daichi uses value of 0xF0 for CNW_SPECIALS_OFFSET, but from other users we know
+   // that bit 7 stands for LED, so we change it to 0x70.
+   // Could be that vertical swing flag actually sits in bit 0 of 6th byte; and Daichi got it wrong.
+   buf[CNW_SPECIALS_OFFSET] = daikin.swingv ? 0x70 : 0;
+   buf[6]                   = daikin.swingv ? 0x11 : 0x10;
+   buf[CNW_CRC_TYPE_OFFSET] = CNW_COMMAND;
+   buf[CNW_CRC_TYPE_OFFSET] = cnw_checksum(buf);
+
+   if (debug)
+   {
+      jo_t j = jo_comms_alloc ();
+      jo_base16 (j, "data", buf, CNW_PKT_LEN);
+      revk_info (daikin.talking ? "tx" : "cannot-tx", &j);
+   }
+
+   if (cn_wired_write_bytes (buf)) {
+      // Modes sent
+      daikin.control_changed = 0;
+      // This validates fan speed controls by parsing back value
+      // from the packet we've just composed and sent. We're reusing
+      // receiving code for simplicity. This implements the second part
+      // of mutual exclusion logic, described above.
+      cn_wired_report_fan_speed (buf);
+   }
+}
+
+void
 daikin_x50a_response (uint8_t cmd, int len, uint8_t * payload)
 {                               // Process response
    if (debug && len)
@@ -2728,81 +2800,16 @@ app_main ()
                else
                {
                   daikin_cn_wired_incoming_packet (buf);
-                  
-                  if (daikin.control_changed)
-                  {
-                     int new_fan;
 
-                     // Send new modes to the AC. We have just received a data packet; CN_WIRED devices
-                     // may dislike being interrupted, so we delay for 20 ms in order for the packet
-                     // trailer pulse (which we ignore) passes
-                     sys_msleep(20);
-
-                     // These A/Cs from internal perspective have 6 fan speeds: Eco, Auto, 1, 2, 3, Powerful
-                     // For more advanced A/Cs Eco and Powerful are special modes, they can be combined with fan speed settings,
-                     // so for us these two settings are separate on/off controls. And here are emulating this behavior
-                     // with the following algorithm:
-                     // - If the user enables Powerful, Eco is turned off, fan speed is remembered
-                     // - If the user enables Eco, Powerful is turned off, fan speed is remembered
-                     // - If the user disables Eco or Powerful (only one can be enabled!), fan speed is reset to remembered value
-                     // - If the user selects fan speed, both Powerful and Eco are turned off.
-                     // The first line implement this exact logic. We check which control of the three
-                     // the user has frobbed, and act accordingly
-                     if (daikin.control_changed & CONTROL_fan) {
-                        // The user has touched fan speed control, set the speed
-                        new_fan = cnw_encode_fan(daikin.fan);
-                     } else if (daikin.control_changed & CONTROL_econo) {
-                        // The user has touched Econo switch, act according to new state
-                        new_fan = daikin.econo ? CNW_FAN_ECO : cnw_encode_fan(daikin.fan);
-                     } else if (daikin.control_changed & CONTROL_powerful) {
-                        // The user has touched Powerful switch, act according to new state
-                        new_fan = daikin.powerful ? CNW_FAN_POWERFUL : cnw_encode_fan(daikin.fan);
-                        // If the user hasn't changed anything, we still have to fill in current fan speed.
-                        // This relies on the fact that controls are always in valid state, and only
-                        // one of Powerful or Econo can be active. Even if somehow not true, the order
-                        // of precedence is as coded here. We'll force our controls to a valid state
-                        // by calling cn_wired_report_fan_speed()
-                     } else if (daikin.powerful) {
-                        new_fan = CNW_FAN_POWERFUL;
-                     } else if (daikin.econo) {
-                        new_fan = CNW_FAN_ECO;
-                     } else {
-                        new_fan = cnw_encode_fan(daikin.fan);
-                     }
-
-                     buf[CNW_TEMP_OFFSET]     = encode_bcd(daikin.temp);
-                     buf[1]                   = 0x04; // These two bytes are perhaps not even used, but from experiments
-                     buf[2]                   = 0x50; // we know these packets work. So let's stick to known working values.
-                     buf[CNW_MODE_OFFSET]     = cnw_encode_mode(daikin.mode, daikin.power);
-                     buf[CNW_FAN_OFFSET]      = new_fan;
-                     // Experimental. Setting CNW_V_SWING bit in CNW_SPECIALS_OFFSET does not work;
-                     // the conditioner doesn't understand it.
-                     // Here we're replicating what Daichi controller does, with one little exception.
-                     // Daichi uses value of 0xF0 for CNW_SPECIALS_OFFSET, but from other users we know
-                     // that bit 7 stands for LED, so we change it to 0x70.
-                     // Could be that vertical swing flag actually sits in bit 0 of 6th byte; and Daichi got it wrong.
-                     buf[CNW_SPECIALS_OFFSET] = daikin.swingv ? 0x70 : 0;
-                     buf[6]                   = daikin.swingv ? 0x11 : 0x10;
-                     buf[CNW_CRC_TYPE_OFFSET] = CNW_COMMAND;
-                     buf[CNW_CRC_TYPE_OFFSET] = cnw_checksum(buf);
-
-                     if (debug)
-                     {
-                        jo_t j = jo_comms_alloc ();
-                        jo_base16 (j, "data", buf, CNW_PKT_LEN);
-                        revk_info (daikin.talking ? "tx" : "cannot-tx", &j);
-                     }
-
-                     if (cn_wired_write_bytes(buf)) {
-                        // Modes sent
-                        daikin.control_changed = 0;
-                        // This validates fan speed controls by parsing back value
-                        // from the packet we've just composed and sent. We're reusing
-                        // receiving code for simplicity. This implements the second part
-                        // of mutual exclusion logic, described above.
-                        cn_wired_report_fan_speed(buf);
-                     }
-                  }
+                  // Send new modes to the AC. We have just received a data packet; CN_WIRED devices
+                  // may dislike being interrupted, so we delay for 20 ms in order for the packet
+                  // trailer pulse (which we ignore) passes
+                  sys_msleep(20);
+                  // We send modes as a "response" to every packet from the AC. We know that original
+                  // equipment (wall panel, as well as Daichi 3rd party controller) does that too; and
+                  // we also know that some ACs (FTN15PV1L) don't take commands on 1st try if we don't
+                  // do so. Perhaps they think we are offline.
+                  daikin_cn_wired_send_modes ();
                }
             } else if (proto_type () == PROTO_TYPE_S21)
             {                   // Older S21
