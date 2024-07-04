@@ -568,6 +568,7 @@ void
 daikin_cn_wired_incoming_packet (uint8_t * payload)
 {
    static int cnw_retries = 0;
+   int8_t new_mode;
 
    uint8_t c = cnw_checksum (payload);
 
@@ -615,10 +616,13 @@ daikin_cn_wired_incoming_packet (uint8_t * payload)
       revk_info ("rx", &j);
    }
 
-   if ((payload[CNW_CRC_TYPE_OFFSET] & CNW_TYPE_MASK) == CNW_MODE_CHANGED)
+   switch (payload[CNW_CRC_TYPE_OFFSET] & CNW_TYPE_MASK)
    {
-      int8_t new_mode = cnw_decode_mode(payload);
-
+   case CNW_SENSOR_REPORT:
+      report_float (home, decode_bcd (payload[CNW_TEMP_OFFSET]));
+      break;
+   case CNW_MODE_CHANGED:
+      new_mode = cnw_decode_mode(payload);
       report_uint8 (power, !(payload[CNW_MODE_OFFSET] & CNW_MODE_POWEROFF));
       if (new_mode != FAIKIN_MODE_INVALID)
          report_uint8 (mode, new_mode);
@@ -626,9 +630,12 @@ daikin_cn_wired_incoming_packet (uint8_t * payload)
       report_float (temp, decode_bcd (payload[CNW_TEMP_OFFSET]));
       cn_wired_report_fan_speed(payload);
       report_bool (swingv, payload[CNW_SPECIALS_OFFSET] & CNW_V_SWING);
-   } else {
-      // CNW_SENSOR_REPORT
-      report_float (home, decode_bcd (payload[CNW_TEMP_OFFSET]));
+      break;
+   default:
+      // From testing with people we know there are also packets of other types.
+      // Example of a type 2 packet: 0038000000000022
+      // We currently don't know what they mean.
+      break;
    }
 }
 

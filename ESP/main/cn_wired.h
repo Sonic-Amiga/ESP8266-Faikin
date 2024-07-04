@@ -51,6 +51,10 @@ static inline unsigned char cnw_checksum(const unsigned char* data) {
         crc += (data[i] >> 4) + (data[i] & 0x0F);
     }
 
+    // Packets starting from type 2 has modified checksum algorithm.
+    // Sum of all nibbles must equal to 0x0F.
+    if (last_nibble > CNW_MODE_CHANGED)
+        crc = 0x0F - crc;
     // The received packet contains the CRC in high nibble. Low nibble is
     // also part of the payload. Keep it in place for easier manipulation
     return (crc << 4) | last_nibble;
