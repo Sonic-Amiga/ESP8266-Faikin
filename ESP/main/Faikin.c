@@ -425,7 +425,7 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
             report_bool (power, payload[0] == '1');
             report_uint8 (mode, "30721003"[payload[1] & 0x7] - '0'); // FHCA456D mapped from AXDCHXF
             report_uint8 (heat, daikin.mode == FAIKIN_MODE_HEAT);    // Crude - TODO find if anything actually tells us this
-            if (daikin.mode == FAIKIN_MODE_HEAT || daikin.mode == FAIKIN_MODE_COOL || daikin.mode == FAIKIN_MODE_DRY)
+            if (daikin.mode == FAIKIN_MODE_HEAT || daikin.mode == FAIKIN_MODE_COOL || daikin.mode == FAIKIN_MODE_AUTO)
                report_float (temp, s21_decode_target_temp (payload[2]));
             else if (!isnan (daikin.temp))
                report_float (temp, daikin.temp);    // Does not have temp in other modes
@@ -2546,7 +2546,8 @@ uart_setup (void)
       esp_log_set_putchar(faikin_log_putc);
    }
 
-   if (proto_type () == PROTO_TYPE_CN_WIRED) {
+   if (proto_type () == PROTO_TYPE_CN_WIRED)
+   {
       // Hardcoded for UART0. Not sure if it even can be used with UART1;
       // because it seems Rx is not connected in the chip
       err = cn_wired_driver_install (GPIO_NUM_3, GPIO_NUM_1);
