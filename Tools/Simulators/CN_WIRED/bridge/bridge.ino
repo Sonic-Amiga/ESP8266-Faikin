@@ -100,6 +100,11 @@ class Receiver {
     const int     pin;
 };
 
+static bool match_pulse(unsigned long len, unsigned long ref)
+{
+  return (len > ref - THRESHOLD) && (len < ref + THRESHOLD);
+}
+
 void Receiver::onInterrupt() {
   int new_state = digitalRead(pin);
 
@@ -112,11 +117,11 @@ void Receiver::onInterrupt() {
 
   if (new_state) {
     // LOW => HIGH
-    if (duration > SYNC_LENGTH - THRESHOLD) {
+    if (match_pulse(duration, SYNC_LENGTH)) {
       // Got SYNC pulse, start receiving data
       packet_start = pulse_start;
       start();
-    } else if (duration > END_LENGTH - THRESHOLD) {
+    } else if (match_pulse(duration, END_LENGTH)) {
       // Got ACK pulse
       if (!ack) {
         last_ack = pulse_start;
