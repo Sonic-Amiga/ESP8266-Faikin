@@ -58,6 +58,11 @@ class Receiver {
       return samples == NUM_SAMPLES;
     }
 
+    // For "not ready" dumps
+    unsigned int getLineState() const {
+      return state;
+    }
+
     const unsigned long* getBuffer() const {
       return buffer;
     }
@@ -307,9 +312,10 @@ static void dump(const char* prefix, const Receiver& rx) {
 TerminalInput<32> termin;
 
 // Packet, pending for send
-uint8_t tx_buffer[PKT_LEN];
-bool    tx_end_pulse;
-bool    send_pending = false;
+uint8_t       tx_buffer[PKT_LEN];
+bool          tx_end_pulse;
+bool          send_pending = false;
+unsigned long send_timestamp;
 
 static uint8_t parseHexDigit(char c) {
   return ((c < 'A') ? c - '0' : toupper(c) - 'A' + 10);
@@ -367,6 +373,7 @@ static void handleCommand(const char* line) {
   // '_' postfix is used to tell the bridge to send a terminating 2ms LOW pulse
   tx_end_pulse = *p == '_';
   send_pending = true;
+  send_timestamp = millis();
 }
 
 void setup() {
@@ -403,21 +410,30 @@ void loop() {
   if (const char *line = termin.getLine()) {
     handleCommand(line);
   }
-  // Only send our pending data when the other side is not busy transmitting.
-  // Daichi controller is known to choke if this is violated; we assume that all
-  // CN_WIRED devices follow this rule. This also explains why the send() routine
-  // appears to work fine with enabled interrupts.
-  if (send_pending && !rx1.isBusy()) {
-    // Unwinding the first iteration this way avoids unwanted delay
-    // before first of after last iteration
-    send(tx_buffer, tx_end_pulse);
-    // Respond back after actually sending the packet
-    dump("Tx", tx_buffer, PKT_LEN);
-    if (tx_end_pulse)
-      Serial.print('_');
-    Serial.println();
-
-    send_pending = false; // Sent
+  if (send_pending) {
+    // Only send our pending data when the other side is not busy transmitting.
+    // Daichi controller is known to choke if this is violated; we assume that all
+    // CN_WIRED devices follow this rule. This also explains why the send() routine
+    // appears to work fine with enabled interrupts.
+    if (rx1.isBusy()) {
+      if (millis() - send_timestamp > 5000) {
+        // If the receiver is locked up during prolinged time (5 seconds),
+        // it's a good idea to tell.
+        send_timestamp = millis();
+        Serial.print("ERR: Receiver not ready! Line state = ");
+        Serial.println(rx1.getLineState());
+      }
+    } else {
+      // Unwinding the first iteration this way avoids unwanted delay
+      // before first of after last iteration
+      send(tx_buffer, tx_end_pulse);
+      // Respond back after actually sending the packet
+      dump("Tx", tx_buffer, PKT_LEN);
+      if (tx_end_pulse)
+        Serial.print('_');
+      Serial.println();
+      send_pending = false; // Sent
+    }
   }
 
   yield();
