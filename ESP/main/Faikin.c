@@ -431,10 +431,10 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
                report_float (temp, daikin.temp);    // Does not have temp in other modes
             if (payload[3] != 'A')      // Set fan speed
                report_uint8 (fan, "00012345"[payload[3] & 0x7] - '0');       // XXX12345 mapped to A12345Q
-            else if (daikin.fan == 6 && daikin.power && daikin.fanrpm < 750)
+            else if (daikin.fan == 6 && (noguessnight || (daikin.power && daikin.fanrpm < 750)))
                report_uint8 (fan, 6);        // Quiet mode set (it returns as auto, so we assume it should be quiet if fan speed is low)
             else
-               report_uint8 (fan, 0);        // Auto as fan too fast to be quiet mode
+               report_uint8 (fan, alwaysnight ? 6 : 0);      // Auto as fan too fast to be quiet mode
          }
          break;
       case '3':                // Seems to be an alternative to G6
@@ -565,16 +565,17 @@ cn_wired_report_fan_speed(const uint8_t* packet)
 // Parse an incoming CN_WIRED packet
 // These packets always have a fixed length of CNW_PKT_LEN
 void
-daikin_cn_wired_incoming_packet (uint8_t * payload)
+daikin_cn_wired_incoming_packet (const uint8_t * payload)
 {
    static int cnw_retries = 0;
    int8_t new_mode;
+   jo_t j;
 
    uint8_t c = cnw_checksum (payload);
 
    if (c != payload[CNW_CRC_TYPE_OFFSET]) {
       // Bad checksum
-      comm_badcrc (c, payload, CNW_PKT_LEN);
+      comm_badcrc (c >> 4, payload, CNW_PKT_LEN);
 
       daikin.online = false;
 
@@ -609,7 +610,7 @@ daikin_cn_wired_incoming_packet (uint8_t * payload)
       report_uint8 (swingv, 0);
    }
    
-   if (debug)
+   if (b.dumping)
    {
       jo_t j = jo_comms_alloc ();
       jo_base16 (j, "data", payload, CNW_PKT_LEN);
@@ -635,6 +636,10 @@ daikin_cn_wired_incoming_packet (uint8_t * payload)
       // From testing with people we know there are also packets of other types.
       // Example of a type 2 packet: 0038000000000022
       // We currently don't know what they mean.
+      j = jo_comms_alloc ();
+      jo_string (j, "error", "Unknown message type");
+      jo_base16 (j, "dump", payload, CNW_PKT_LEN);
+      revk_error ("rx", &j);
       break;
    }
 }
@@ -693,7 +698,7 @@ daikin_cn_wired_send_modes (void)
    buf[CNW_CRC_TYPE_OFFSET] = CNW_COMMAND;
    buf[CNW_CRC_TYPE_OFFSET] = cnw_checksum(buf);
 
-   if (debug)
+   if (b.dumping)
    {
       jo_t j = jo_comms_alloc ();
       jo_base16 (j, "data", buf, CNW_PKT_LEN);
@@ -1230,7 +1235,7 @@ const char *
 mqtt_client_callback (int client, const char *prefix, const char *target, const char *suffix, jo_t j)
 {                               // MQTT app callback
    const char *ret = NULL;
-   if (client || !prefix || target || strcmp (prefix, prefixcommand))
+   if (client || !prefix || target || strcmp (prefix, topiccommand))
       return NULL;              // Not for us or not a command from main MQTT
    if (!suffix)
       return daikin_control (j);        // General setting
@@ -1354,11 +1359,17 @@ mqtt_client_callback (int client, const char *prefix, const char *target, const 
          } else
             jo_lit (s, "temp", value);  // Direct controls
       }
+      int checkbool (void)
+      {
+         return !strcasecmp (value, "ON") || !strcmp (value, "1") || !strcasecmp (value, "true") ? 1 : 0;
+      }
       // HA stuff
       if (!strcmp (suffix, "mode"))
       {
-         jo_bool (s, "power", *value == 'o' ? 0 : 1);
-         if (*value != 'o')
+         jo_bool (s, "power", strcmp (value, "off") ? 1 : 0);
+         if (!strcmp (value, "heat_cool"))
+            jo_string (s, "mode", "A");
+         else if (*value != 'o')
             jo_stringf (s, "mode", "%c", toupper (*value));
       }
       if (!strcmp (suffix, "fan"))
@@ -1387,10 +1398,12 @@ mqtt_client_callback (int client, const char *prefix, const char *target, const 
       }
       if (!strcmp (suffix, "demand"))
          jo_int (s, "demand", atoi (value));
-      if (!strcmp (suffix, "streamer"))
-         jo_int (s, "streamer", atoi (value));
       if (!strcmp (suffix, "sensor"))
-         jo_int (s, "sensor", atoi (value));
+         jo_bool (s, "sensor", checkbool ());
+      if (!strcmp (suffix, "power"))
+         jo_bool (s, "power", checkbool ());
+      if (!strcmp (suffix, "streamer"))
+         jo_bool (s, "streamer", checkbool ());
    }
    jo_close (s);
    jo_rewind (s);
@@ -1534,7 +1547,7 @@ web_root (httpd_req_t * req)
    revk_web_send (req, "</tr>");
    add ("Mode", "mode", "Auto", "A", "Heat", "H", "Cool", "C", "Dry", "D", "Fan", "F", NULL);
    if (have_5_fan_speeds ())
-      add ("Fan", "fan", "1", "1", "2", "2", "3", "3", "4", "4", "5", "5", "Auto", "A", "Night", "Q", NULL);
+      add ("Fan", "fan", "1", "1", "2", "2", "3", "3", "4", "4", "5", "5", "Night", "Q", alwaysnight ? NULL : "Auto", "A", NULL);
    else if (proto_type () == PROTO_TYPE_CN_WIRED)
       add ("Fan", "fan", "Low", "1", "Mid", "3", "High", "5", "Auto", "A", NULL);
    else
@@ -1750,15 +1763,6 @@ web_root (httpd_req_t * req)
    return revk_web_foot (req, 0, websettings, protocol_set ? proto_name () : NULL);
 }
 
-static const char *
-get_query (httpd_req_t * req, char *buf, size_t buf_len)
-{
-   if (httpd_req_get_url_query_len (req) && !httpd_req_get_url_query_str (req, buf, buf_len))
-      return NULL;
-   else
-      return "Required arguments missing";
-}
-
 // Macros with error collection for HTTP
 #define	daikin_set_v_e(err,name,value) {      \
    const char * e = daikin_set_v(name, value); \
@@ -1856,6 +1860,16 @@ legacy_send (httpd_req_t * req, jo_t * jp)
    return ESP_OK;
 }
 
+static void
+legacy_adv (jo_t j)
+{
+   jo_int (j, "adv",            //
+           daikin.powerful ? 2 :        //
+           daikin.econo ? 12 :  //
+           daikin.streamer ? 13 :       //
+           0);
+}
+
 esp_err_t
 legacy_simple_response (httpd_req_t * req, const char *err)
 {
@@ -1868,9 +1882,23 @@ legacy_simple_response (httpd_req_t * req, const char *err)
    {
 
       jo_string (j, "ret", "OK");
-      jo_string (j, "adv", "");
+      legacy_adv (j);
    }
    return legacy_send (req, &j);
+}
+
+static esp_err_t
+legacy_web_set_holiday (httpd_req_t * req)
+{
+   const char *err = NULL;
+   jo_t j = revk_web_query (req);
+   if (!j)
+      err = "Query failed";
+   else
+   {
+      // TODO - ignore for now
+   }
+   return legacy_simple_response (req, err);
 }
 
 static esp_err_t
@@ -1950,25 +1978,29 @@ legacy_web_get_model_info (httpd_req_t * req)
 static esp_err_t
 legacy_web_get_control_info (httpd_req_t * req)
 {
+   static float dt[8] = { 20, 20, 20, 20, 20, 20, 20, 20 };     // Used for some of the status
+   static char dfr[8] = { 'A', 'A', 'A', 'A', 'A', 'A', 'A', 'A' };
+   char mode = '0';
+   if (daikin.mode <= 7)
+      mode = "64370002"[daikin.mode];
+   dfr[mode - '0'] = "A34567B"[daikin.fan];
+   dt[mode - '0'] = daikin.temp;
    jo_t j = legacy_ok ();
    jo_int (j, "pow", daikin.power);
-   if (daikin.mode <= 7)
-      jo_stringf (j, "mode", "%c", "64370002"[daikin.mode]);
-   jo_string (j, "adv", daikin.powerful ? "2" : "");
+   jo_stringf (j, "mode", "%c", mode);
+   legacy_adv (j);
    jo_litf (j, "stemp", "%.1f", daikin.temp);
    jo_int (j, "shum", 0);
    for (int i = 1; i <= 7; i++)
-      if (i != 6)
-      {
-         char tag[4] = { 'd', 't', '0' + i };
-         jo_litf (j, tag, "%.1f", daikin.temp);
-      }
+   {                            // Temp setting in mode
+      char tag[4] = { 'd', 't', '0' + i };
+      jo_litf (j, tag, "%.1f", dt[i]);
+   }
    for (int i = 1; i <= 7; i++)
-      if (i != 6)
-      {
-         char tag[4] = { 'd', 'h', '0' + i };
-         jo_int (j, tag, 0);
-      }
+   {                            // Probably humidity, unknown
+      char tag[4] = { 'd', 'h', '0' + i };
+      jo_int (j, tag, 0);
+   }
    jo_int (j, "dhh", 0);
    if (daikin.mode <= 7)
       jo_stringf (j, "b_mode", "%c", "64370002"[daikin.mode]);
@@ -1982,18 +2014,16 @@ legacy_web_get_control_info (httpd_req_t * req)
       jo_stringf (j, "b_f_rate", "%c", "A34567B"[daikin.fan]);
    jo_int (j, "b_f_dir", daikin.swingh * 2 + daikin.swingv);
    for (int i = 1; i <= 7; i++)
-      if (i != 6)
-      {
-         char tag[5] = { 'd', 'f', 'r', '0' + i };
-         jo_int (j, tag, 0);
-      }
+   {                            // Fan rate
+      char tag[5] = { 'd', 'f', 'r', '0' + i };
+      jo_stringf (j, tag, "%c", dfr[i]);
+   }
    jo_int (j, "dfrh", 0);
    for (int i = 1; i <= 7; i++)
-      if (i != 6)
-      {
-         char tag[5] = { 'd', 'f', 'd', '0' + i };
-         jo_int (j, tag, 0);
-      }
+   {                            // Unknown
+      char tag[5] = { 'd', 'f', 'd', '0' + i };
+      jo_int (j, tag, 0);
+   }
    jo_int (j, "dfdh", 0);
    jo_int (j, "dmnd_run", 0);
    jo_int (j, "en_demand", (daikin.status_known & CONTROL_demand) && daikin.demand < 100 ? 1 : 0);
@@ -2045,7 +2075,7 @@ legacy_web_set_control_info (httpd_req_t * req)
          {
             int8_t setval;
             if (*v == 'A')
-               setval = 0;
+               setval = (alwaysnight ? 6 : 0);
             else if (*v == 'B')
                setval = 6;
             else if (*v >= '3' && *v <= '7')
@@ -2131,31 +2161,51 @@ legacy_web_get_week_power (httpd_req_t * req)
 static esp_err_t
 legacy_web_set_special_mode (httpd_req_t * req)
 {
-   char query[200];
-   const char *err = get_query (req, query, sizeof (query));
-   if (!err)
+   const char *err = NULL;
+   jo_t j = revk_web_query (req);
+   if (!j)
+      err = "Query failed";
+   else
    {
-      char mode[6],
-        value[2];
-      if (!httpd_query_key_value (query, "spmode_kind", mode, sizeof (mode)) &&
-          !httpd_query_key_value (query, "set_spmode", value, sizeof (value)))
+      int kind = 0,
+         mode = 0;
+      if (jo_find (j, "spmode_kind"))
       {
-         if (!strcmp (mode, "12"))
-            err = daikin_set_v (econo, *value == '1');
-         else if (!strcmp (mode, "2"))
-            err = daikin_set_v (powerful, *value == '1');
-         else
-            err = "Unsupported spmode_kind value";
-         // TODO comfort/streamer/sensor/quiet
-
-         // The following other modes are known from OpenHAB sources:
-         // STREAMER "13"
-         // POWERFUL_STREAMER "2/13"
-         // ECO_STREAMER "12/13"
-         // Don't know what to do with them and my AC doesn't support them
+         char *v = jo_strdup (j);
+         if (v)
+            kind = atoi (v);
+         free (v);
+      }
+      if (jo_find (j, "set_spmode"))
+      {
+         char *v = jo_strdup (j);
+         if (v)
+            mode = atoi (v);
+         free (v);
+      }
+      if (jo_find (j, "en_streamer"))
+      {
+         char *v = jo_strdup (j);
+         if (v)
+            mode = atoi (v);
+         free (v);
+         kind = 3;
+      }
+      switch (kind)
+      {
+      case 1:                  // powerful
+         err = daikin_set_v (powerful, mode);
+         break;
+      case 2:                  // eco
+         err = daikin_set_v (econo, mode);
+         break;
+      case 3:                  // streamer
+         err = daikin_set_v (streamer, mode);
+         break;
+      default:
+         err = "Unknown kind";
       }
    }
-
    return legacy_simple_response (req, err);
 }
 
@@ -2208,6 +2258,8 @@ static void
 send_ha_config (void)
 {
    daikin.ha_send = 0;
+   char *hastatus = revk_topic (topicstate, NULL, NULL);
+   char *cmd = revk_topic (topiccommand, NULL, NULL);
    char *topic;
    jo_t make (const char *tag, const char *icon)
    {
@@ -2226,6 +2278,10 @@ send_ha_config (void)
       jo_close (j);
       if (icon)
          jo_string (j, "icon", icon);
+      jo_string (j, "avty_t", hastatus);
+      jo_string (j, "avty_tpl", "{{value_json.up}}");
+      jo_bool (j, "pl_avail", 1);
+      jo_bool (j, "pl_not_avail", 0);
       return j;
    }
    void addtemp (uint64_t ok, const char *tag, const char *name, const char *icon)
@@ -2240,7 +2296,7 @@ send_ha_config (void)
             jo_string (j, "name", name);
             jo_string (j, "dev_cla", "temperature");
             jo_string (j, "state_class", "measurement");
-            jo_string (j, "stat_t", revk_id);
+            jo_string (j, "stat_t", hastatus);
             jo_string (j, "unit_of_meas", "°C");
             jo_stringf (j, "val_tpl", "{{value_json.%s}}", tag);
             revk_mqtt_send (NULL, 1, topic, &j);
@@ -2260,7 +2316,7 @@ send_ha_config (void)
             jo_string (j, "name", tag);
             jo_string (j, "dev_cla", "frequency");
             jo_string (j, "state_class", "measurement");
-            jo_string (j, "stat_t", revk_id);
+            jo_string (j, "stat_t", hastatus);
             jo_string (j, "unit_of_meas", unit);
             jo_stringf (j, "val_tpl", "{{value_json.%s}}", tag);
             revk_mqtt_send (NULL, 1, topic, &j);
@@ -2278,8 +2334,8 @@ send_ha_config (void)
          {
             jo_t j = make (tag, icon);
             jo_string (j, "name", name);
-            jo_string (j, "stat_t", revk_id);
-            jo_stringf (j, "cmd_t", "command/%s/%s", revk_id, tag);
+            jo_string (j, "stat_t", hastatus);
+            jo_stringf (j, "cmd_t", "%s/%s", cmd, tag);
             jo_stringf (j, "val_tpl", "{{value_json.%s}}", tag);
             jo_bool (j, "pl_on", 1);
             jo_bool (j, "pl_off", 0);
@@ -2293,47 +2349,59 @@ send_ha_config (void)
       jo_t j = make ("", "mdi:thermostat");
       //jo_string (j, "name", hostname);
       //jo_null(j,"name");
-      jo_stringf (j, "~", "command/%s", hostname);      // Prefix for command
+      jo_string (j, "~", cmd);
       jo_int (j, "min_temp", tmin);
       jo_int (j, "max_temp", tmax);
       jo_string (j, "temp_unit", "C");
       jo_lit (j, "temp_step", get_temp_step ());
       jo_string (j, "temp_cmd_t", "~/temp");
-      jo_string (j, "temp_stat_t", revk_id);
+      jo_string (j, "temp_stat_t", hastatus);
       jo_string (j, "temp_stat_tpl", "{{value_json.target}}");
       if (daikin.status_known & (CONTROL_inlet | CONTROL_home))
       {
-         jo_string (j, "curr_temp_t", revk_id);
+         jo_string (j, "curr_temp_t", hastatus);
          jo_string (j, "curr_temp_tpl", "{{value_json.temp}}");
       }
       if (daikin.status_known & CONTROL_mode)
       {
          jo_string (j, "mode_cmd_t", "~/mode");
-         jo_string (j, "mode_stat_t", revk_id);
+         jo_string (j, "mode_stat_t", hastatus);
          jo_string (j, "mode_stat_tpl", "{{value_json.mode}}");
          if (!nohvacaction)
          {
-            jo_string (j, "action_topic", revk_id);
+            jo_string (j, "action_topic", hastatus);
             jo_string (j, "action_template", "{{value_json.action}}");
          }
+         jo_string (j, "payload_on", "1");
+         jo_string (j, "payload_off", "0");
+         jo_string (j, "power_command_topic", "~/power");
+         jo_array (j, "modes");
+         jo_string (j, NULL, "heat_cool");
+         jo_string (j, NULL, "off");
+         jo_string (j, NULL, "cool");
+         jo_string (j, NULL, "heat");
+         jo_string (j, NULL, "dry");
+         jo_string (j, NULL, "fan_only");
+         jo_close (j);
       }
       if (daikin.status_known & CONTROL_fan)
       {
          jo_string (j, "fan_mode_cmd_t", "~/fan");
-         jo_string (j, "fan_mode_stat_t", revk_id);
+         jo_string (j, "fan_mode_stat_t", hastatus);
          jo_string (j, "fan_mode_stat_tpl", "{{value_json.fan}}");
          if (have_5_fan_speeds ())
          {
             jo_array (j, "fan_modes");
             for (int f = 0; f < sizeof (fans) / sizeof (*fans); f++)
-               jo_string (j, NULL, fans[f]);
+               if (f || !alwaysnight)
+                  jo_string (j, NULL, fans[f]);
             jo_close (j);
          }
       }
       if (daikin.status_known & (CONTROL_swingh | CONTROL_swingv | CONTROL_comfort))
       {
          jo_string (j, "swing_mode_cmd_t", "~/swing");
-         jo_string (j, "swing_mode_stat_t", revk_id);
+         jo_string (j, "swing_mode_stat_t", hastatus);
          jo_string (j, "swing_mode_stat_tpl", "{{value_json.swing}}");
          jo_array (j, "swing_modes");
          jo_string (j, NULL, "off");
@@ -2350,14 +2418,15 @@ send_ha_config (void)
       if (daikin.status_known & (CONTROL_econo | CONTROL_powerful))
       {
          jo_string (j, "pr_mode_cmd_t", "~/preset");
-         jo_string (j, "pr_mode_stat_t", revk_id);
+         jo_string (j, "pr_mode_stat_t", hastatus);
          jo_string (j, "pr_mode_val_tpl", "{{value_json.preset}}");
          jo_array (j, "pr_modes");
          if (daikin.status_known & CONTROL_econo)
             jo_string (j, NULL, "eco");
          if (daikin.status_known & CONTROL_powerful)
             jo_string (j, NULL, "boost");
-         jo_string (j, NULL, "home");
+         if (!nohomepreset)
+            jo_string (j, NULL, "home");
          jo_close (j);
       }
       revk_mqtt_send (NULL, 1, topic, &j);
@@ -2383,7 +2452,7 @@ send_ha_config (void)
             jo_string (j, "name", name);
             jo_string (j, "dev_cla", "humidity");
             jo_string (j, "state_class", "measurement");
-            jo_string (j, "stat_t", revk_id);
+            jo_string (j, "stat_t", hastatus);
             jo_string (j, "unit_of_meas", "%");
             jo_stringf (j, "val_tpl", "{{value_json.%s}}", tag);
             revk_mqtt_send (NULL, 1, topic, &j);
@@ -2403,7 +2472,7 @@ send_ha_config (void)
             jo_string (j, "name", name);
             jo_string (j, "dev_cla", "battery");
             jo_string (j, "state_class", "measurement");
-            jo_string (j, "stat_t", revk_id);
+            jo_string (j, "stat_t", hastatus);
             jo_string (j, "unit_of_meas", "%");
             jo_stringf (j, "val_tpl", "{{value_json.%s}}", tag);
             revk_mqtt_send (NULL, 1, topic, &j);
@@ -2424,8 +2493,8 @@ send_ha_config (void)
       {
          jo_t j = make ("demand", NULL);
          jo_string (j, "name", "Demand control");
-         jo_stringf (j, "cmd_t", "command/%s/demand", revk_id);
-         jo_stringf (j, "stat_t", "%s", revk_id);
+         jo_stringf (j, "cmd_t", "%s/demand", cmd);
+         jo_string (j, "stat_t", hastatus);
          jo_string (j, "val_tpl", "{{value_json.demand}}");
          jo_array (j, "options");
          for (int i = 30; i <= 100; i += 5)
@@ -2444,7 +2513,8 @@ send_ha_config (void)
       {
          jo_t j = make ("energy", NULL);
          jo_string (j, "name", "Lifetime energy");
-         jo_string (j, "stat_t", revk_id);
+         jo_string (j, "dev_cla", "energy");
+         jo_string (j, "stat_t", hastatus);
          jo_string (j, "unit_of_meas", "kWh");
          jo_string (j, "state_class", "total_increasing");
          jo_stringf (j, "val_tpl", "{{(value_json.Wh|float)/1000}}");
@@ -2452,6 +2522,8 @@ send_ha_config (void)
       }
       free (topic);
    }
+   free (cmd);
+   free (hastatus);
 }
 
 static void
@@ -2459,13 +2531,22 @@ ha_status (void)
 {                               // Home assistant message
    if (!haenable)
       return;
-   jo_t j = jo_object_alloc ();
+   revk_command ("status", NULL);
+}
+
+void
+revk_state_extra (jo_t j)
+{
+   if (!haenable)
+      return;
    if (b.loopback)
       jo_bool (j, "loopback", 1);
    else if (daikin.status_known & CONTROL_online)
       jo_bool (j, "online", daikin.online);
-   if (daikin.status_known & CONTROL_temp)
-      jo_litf (j, "target", "%.2f", autor ? (float) autot / autot_scale : daikin.temp); // Target - either internal or what we are using as reference
+   if (daikin.status_known & CONTROL_power)
+      jo_bool (j, "power", daikin.power);
+   //if (daikin.status_known & CONTROL_temp) // HA always expects this
+   jo_litf (j, "target", "%.2f", autor ? (float) autot / autot_scale : daikin.temp);    // Target - either internal or what we are using as reference
    if (daikin.status_known & CONTROL_env)
       jo_litf (j, "temp", "%.2f", daikin.env);  // The external temperature
    else if (daikin.status_known & CONTROL_home)
@@ -2504,19 +2585,20 @@ ha_status (void)
 #endif
    if (daikin.status_known & CONTROL_mode)
    {
-      const char *modes[] = { "fan_only", "heat", "cool", "auto", "4", "5", "6", "dry" };       // FHCA456D
-      jo_string (j, "mode", daikin.power ? autor && !lockmode ? "auto" : modes[daikin.mode] : "off");   // If we are controlling, it is auto
+      const char *modes[] = { "fan_only", "heat", "cool", "heat_cool", "4", "5", "6", "dry" };  // FHCA456D
+      jo_string (j, "mode", daikin.power ? autor && !lockmode ? "heat_cool" : modes[daikin.mode] : "off");      // If we are controlling, it is auto
    }
-   if (!nohvacaction)
+   if (!nohvacaction && daikin.action != HVAC_IDLE)
       jo_string (j, "action", hvac_action[daikin.action]);
    if (daikin.status_known & CONTROL_fan)
       jo_string (j, "fan", fans[daikin.fan]);
+   if (daikin.status_known & CONTROL_streamer)
+      jo_bool (j, "streamer", daikin.streamer);
    if (daikin.status_known & (CONTROL_swingh | CONTROL_swingv | CONTROL_comfort))
       jo_string (j, "swing",
                  daikin.comfort ? "C" : daikin.swingh & daikin.swingv ? "H+V" : daikin.swingh ? "H" : daikin.swingv ? "V" : "off");
    if (daikin.status_known & (CONTROL_econo | CONTROL_powerful))
-      jo_string (j, "preset", daikin.econo ? "eco" : daikin.powerful ? "boost" : "home");       // Limited modes
-   revk_mqtt_send_clients (NULL, 1, revk_id, &j, 1);
+      jo_string (j, "preset", daikin.econo ? "eco" : daikin.powerful ? "boost" : nohomepreset ? "none" : "home");       // Limited modes
 }
 
 int faikin_log_putc(int c) {
@@ -2573,7 +2655,6 @@ uart_setup (void)
       jo_int (j, "uart", uart);
       jo_string (j, "description", esp_err_to_name (err));
       revk_error ("uart", &j);
-      return;
    }
 }
 
@@ -2600,7 +2681,7 @@ register_get_uri (const char *uri, esp_err_t (*handler) (httpd_req_t * r))
 }
 
 void
-revk_web_extra (httpd_req_t * req)
+revk_web_extra (httpd_req_t * req, int page)
 {
    revk_web_setting (req, "Fahrenheit", "fahrenheit");
    revk_web_setting (req, "Text rather than icons", "noicons");
@@ -2646,7 +2727,7 @@ app_main ()
       config.stack_size += 2048;        // Being on the safe side
       // When updating the code below, make sure this is enough
       // Note that we're also adding revk's own web config handlers
-      config.max_uri_handlers = 14 + revk_num_web_handlers ();
+      config.max_uri_handlers = 15 + revk_num_web_handlers ();
       if (!httpd_start (&webserver, &config))
       {
          if (websettings)
@@ -2668,6 +2749,7 @@ app_main ()
             register_get_uri ("/aircon/get_week_power_ex", legacy_web_get_week_power);
             register_get_uri ("/aircon/set_special_mode", legacy_web_set_special_mode);
             register_get_uri ("/aircon/set_demand_control", legacy_web_set_demand_control);
+            register_get_uri ("/aircon/set_holiday", legacy_web_set_holiday);
          }
          // When adding, update config.max_uri_handlers
       }
@@ -3381,7 +3463,13 @@ app_main ()
          } else
          {
             controlstop ();
-            daikin.action = (daikin.power ? HVAC_IDLE : HVAC_OFF);
+            // Just based on mode
+            daikin.action = (!daikin.power ? HVAC_OFF : daikin.mode == FAIKIN_MODE_HEAT ? HVAC_HEATING :        //
+                             daikin.mode == FAIKIN_MODE_COOL ? HVAC_COOLING :   //
+                             daikin.mode == FAIKIN_MODE_AUTO ? HVAC_IDLE :      //
+                             daikin.mode == FAIKIN_MODE_DRY ? HVAC_DRYING :     //
+                             daikin.mode == FAIKIN_MODE_FAN ? HVAC_FAN :        //
+                             HVAC_IDLE);
          }
          // End of local auto controls
 
@@ -3413,7 +3501,7 @@ app_main ()
                         daikin.min##name=0;daikin.total##name=0;daikin.max##name=0;}
 #define e(name,values)  if((daikin.status_known&CONTROL_##name)&&daikin.name<sizeof(CONTROL_##name##_VALUES)-1)jo_stringf(j,#name,"%c",CONTROL_##name##_VALUES[daikin.name]);
 #include "acextras.m"
-                  revk_mqtt_send_clients ("Faikin", 0, NULL, &j, 1);
+                  revk_mqtt_send_clients (appname, 0, NULL, &j, 1);
                   daikin.statscount = 0;
                   ha_status ();
                }

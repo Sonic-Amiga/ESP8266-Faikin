@@ -32,8 +32,13 @@ bit	no.led		1							// Unit does not have LED control
 bit	no.faikinauto								// Do not show faikin auto controls
 bit	no.hvacaction	1							// Do not track/report hvac_action for Faikin auto mode in HA
 bit	no.fanauto								// Do not control fan in faikin auto mode
+bit	no.homepreset								// Do not include a home in HA preset list
+
+bit	no.guessnight								// Do not assume someone else can set auto after we set night
 
 bit	no.icons			.live=1					// Don't show icons on web UI
+
+bit	alwaysnight			.old="alwaysquiet"			// Always set Night mode not Auto
 
 bit	dark									// Dark mode
 bit	ha.enable	1		.old="ha"				// Home Assistance
@@ -49,10 +54,8 @@ u8	fanstep									// Fan steps
 
 bit	lockmode								// Lock mode in Faikin auto
 
-// Internal protocol as found, saved when found, can be used with protofix
-u8	protocol
-// Protofix forces no change, use nos21, nox50a, etc instead maybe
-bit	protofix
+u8	protocol			.hide=1					// Internal protocol as found, saved when found, can be used with protofix
+bit	protofix			.hide=1					// Protofix forces no change, use nos21, nox50a, etc instead maybe
 
 u32	reporting	60							// Status report period
 
