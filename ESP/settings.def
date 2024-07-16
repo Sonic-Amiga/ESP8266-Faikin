@@ -16,8 +16,6 @@ bit	no.s21				.live=1	.fix=1				// Do not try S21 protocol
 bit	no.x50a				.live=1	.fix=1				// Do not try X50A protocol
 bit	no.cnwired	0		.live=1	.fix=1				// Do not try CN_WIRED protocol
 bit	no.as		1		.live=1	.fix=1				// Do not try Altherma_S protocol
-bit	no.swaptx			.live=1	.fix=1				// Do not try inverted Tx (use GPIO setting only)
-bit	no.swaprx			.live=1	.fix=1				// Do not try inverted Rx (use GPIO setting only)
 
 bit	no.demand								// Disable demand control
 bit	no.swingw								// Unit does not have swing (W)
@@ -58,6 +56,8 @@ u8	protocol			.hide=1					// Internal protocol as found, saved when found, can b
 bit	protofix			.hide=1					// Protofix forces no change, use nos21, nox50a, etc instead maybe
 
 u32	reporting	60							// Status report period
+
+u8	uart		0		.fix=1					// UART number
 
 u8	thermref	50		.live=1					// Percentage inlet rather than home temp used by your aircon
 

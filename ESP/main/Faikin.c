@@ -26,10 +26,6 @@ static const char TAG[] = "Faikin";
 
 // Settings (RevK library used by MQTT setting command)
 
-#define UART_NONE 0xFF
-
-const uint8_t uart = CONFIG_FAIKIN_AC_UART_NUM;
-
 enum
 {                               // Number the control fields
 #define	b(name)		CONTROL_##name##_pos,
@@ -85,7 +81,7 @@ static uint8_t proto = 0;
 static int
 uart_enabled (void)
 {
-   return uart != UART_NONE;
+   return uart == 0; // UART1 can only transmit, so doesn't make sense
 }
 
 static uint8_t
