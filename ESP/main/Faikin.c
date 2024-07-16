@@ -2712,6 +2712,12 @@ app_main ()
 #define	r(name)	daikin.min##name=NAN;daikin.max##name=NAN;
 #include "acextras.m"
    revk_boot (&mqtt_client_callback);
+   // !!! TEMPORARY HACK !!! Disable auto-update by brute force.
+   // OTA firmware version check in librevk relies on ESP32-specific image format.
+   // 8266 image is simpler; it doesn't specify any versioning info, therefore it
+   // never matches current version, causing infinite updating in a loop, which
+   // ends up in reboot every approx 10 minutes, and tremendous flash wear and tear.
+   otaauto = 0;
    revk_start ();
    b.dumping = dump;
    revk_blink (0, 0, "");
