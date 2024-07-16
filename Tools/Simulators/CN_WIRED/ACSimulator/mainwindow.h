@@ -48,6 +48,8 @@ private slots:
 
     void on_unknownByte2_valueChanged(int arg1);
 
+    void on_dumpExtra_stateChanged(int arg1);
+
 private:
     void startSimulator();
     void setCommRunning(bool running);

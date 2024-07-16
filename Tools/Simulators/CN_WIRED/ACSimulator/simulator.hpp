@@ -11,6 +11,7 @@ void setIndoorTemp(int temp);
 void setUnknownByte1(int val);
 void setUnknownByte2(int val);
 void setDumpAllPackets(bool on);
+void setDumpExtra(bool on);
 void sendSensorsPacket(QSerialPort* serial);
 void setPower(bool on, QSerialPort* serial);
 void setPoint(uint8_t temp, QSerialPort* serial);

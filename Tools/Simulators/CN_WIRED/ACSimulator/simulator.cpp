@@ -26,8 +26,9 @@ class Dump {
     }
 };
 
-// Temporary, to be set from UI
+// Set from UI
 static bool dump_all_packets;
+static bool dump_extra;
 
 // Buffer to read incoming serial data
 static char rx_buffer[1024];
@@ -149,6 +150,11 @@ static void handleRxPacket()
     }
     if (startp[4] == '_') {
         // "Rx1 _" is a legitimate text, telling that a 2ms pulse has been found.
+        // '_' is followed by idle length between the packet and this pulse, which
+        // may be interesting.
+        if (dump_extra) {
+            std::cout << "Rx: " << &startp[4] << std::endl;
+        }
         return;
     }
     if (strlen(startp) < 5) {
@@ -393,4 +399,9 @@ void setVSwing(bool on, QSerialPort* serial)
 void setDumpAllPackets(bool on)
 {
     dump_all_packets = on;
+}
+
+void setDumpExtra(bool on)
+{
+    dump_extra = on;
 }

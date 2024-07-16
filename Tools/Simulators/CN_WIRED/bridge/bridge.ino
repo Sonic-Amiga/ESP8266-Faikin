@@ -71,10 +71,11 @@ class Receiver {
       return packet_start;
     }
 
-    bool getAck(unsigned long &timestamp) {
+    bool getAck(unsigned long &timestamp, unsigned long& idle) {
       if (ack) {
         timestamp = last_ack;
-        ack = false;
+        idle      = pre_ack_idle;
+        ack       = false;
         return true;
       } else {
         return false;
@@ -96,6 +97,8 @@ class Receiver {
     unsigned int  state;        // Current line state
     int           samples;      // Counter of collected pulses
     volatile bool ack;
+    unsigned long last_idle;
+    unsigned long pre_ack_idle;
     unsigned long last_ack;    // Timestamp of the last ACK pulse
     const int     pin;
 };
@@ -124,10 +127,13 @@ void Receiver::onInterrupt() {
     } else if (match_pulse(duration, END_LENGTH)) {
       // Got ACK pulse
       if (!ack) {
-        last_ack = pulse_start;
-        ack = true;
+        pre_ack_idle = last_idle;
+        last_ack     = pulse_start;
+        ack          = true;
       }
     }
+  } else {
+    last_idle = duration;
   }
 
   if (isReceiving()) {
@@ -395,18 +401,22 @@ void setup() {
 
 void loop() {
   unsigned long ack_ts;
+  unsigned long pre_ack;
 
-  if (rx1.getAck(ack_ts)) {
+  if (rx1.getAck(ack_ts, pre_ack)) {
+    // Output format: <timestamp> _ <idle_time>
     printTimestamp(ack_ts);
-    Serial.println("Rx1 _");
+    Serial.print("Rx1 _ ");
+    Serial.println(pre_ack);
   }
   if (rx1.isDataReady()) {
     dump("Rx1", rx1);
   }
 #ifdef RX2_PIN
-  if (rx2.getAck(ack_ts)) {
+  if (rx2.getAck(ack_ts, pre_ack)) {
     printTimestamp(ack_ts);
-    Serial.println("Rx2 _");
+    Serial.print("Rx2 _ ");
+    Serial.println(pre_ack);
   }
   if (rx2.isDataReady()) {
     dump("Rx2", rx2);

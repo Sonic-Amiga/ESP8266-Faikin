@@ -234,3 +234,9 @@ void MainWindow::on_unknownByte2_valueChanged(int arg1)
     setUnknownByte2(arg1);
 }
 
+
+void MainWindow::on_dumpExtra_stateChanged(int arg1)
+{
+    setDumpExtra(arg1 == Qt::Checked);
+}
+
