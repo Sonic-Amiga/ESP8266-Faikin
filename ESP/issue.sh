@@ -16,5 +16,6 @@ fi
 
 make
 cp Faikin-*.bin $ISSUE_KIND
+cp Faikin-*.desc $ISSUE_KIND
 git commit -a -m $ISSUE_KIND
 git push

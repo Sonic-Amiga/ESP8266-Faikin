@@ -15,6 +15,12 @@ all:	settings.h
 	@idf.py build
 	@cp build/$(PROJECT_NAME).bin $(PROJECT_NAME)$(SUFFIX).bin
 	@cp build/bootloader/bootloader.bin $(PROJECT_NAME)$(SUFFIX)-bootloader.bin
+	# ESP8266 uses image header version 1, which does not include app descriptor.
+	# Here we're complementing this by hijacking data from object file, containing
+	# esp_app_desc structure (the SDK still produces it as a part of binary in
+	# order to support esp_app_get_description()). We store the data in raw binary
+	# form in a separate file, which accompanies the binary.
+	@xtensa-lx106-elf-objcopy -Obinary build/esp-idf/app_update/CMakeFiles/__idf_app_update.dir/esp_app_desc.c.obj $(PROJECT_NAME)$(SUFFIX).desc
 	@echo Done: $(PROJECT_NAME)$(SUFFIX).bin
 
 beta:
