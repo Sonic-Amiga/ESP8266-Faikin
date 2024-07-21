@@ -245,22 +245,22 @@ void cn_wired_driver_delete (void)
     gpio_uninstall_isr_service ();
 }
 
-int cn_wired_read_bytes (uint8_t *buffer, TickType_t timeout)
+esp_err_t cn_wired_read_bytes (uint8_t *buffer, TickType_t timeout)
 {
     if (!xTaskNotifyWait(0x00, ULONG_MAX, NULL, timeout ))
-        return 0;
+        return ESP_ERR_TIMEOUT;
 
     // Drop the prefix 0x80 byte, containing start bit
     memcpy(buffer, &rx_obj.buffer[1], CNW_PKT_LEN);
     rx_obj.rx_bytes = -1; // "Wait for sync" state
 
-    return CNW_PKT_LEN;
+    return ESP_OK;
 }
 
-int cn_wired_write_bytes (const uint8_t *buffer)
+esp_err_t cn_wired_write_bytes (const uint8_t *buffer)
 {
     if (tx_obj.tx_state != TX_IDLE)
-        return 0; // Busy, retry plz
+        return ESP_FAIL; // Busy, retry plz
 
     memcpy(tx_obj.buffer, buffer, CNW_PKT_LEN);
     tx_obj.tx_state   = TX_DATA;
@@ -286,5 +286,5 @@ int cn_wired_write_bytes (const uint8_t *buffer)
     tx_obj.t_delay  = timer_ticks(END_DELAY);
     tx_obj.t_end    = timer_ticks(END_LENGTH);
 
-    return CNW_PKT_LEN;
+    return ESP_OK;
 }

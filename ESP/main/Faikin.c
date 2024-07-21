@@ -610,6 +610,7 @@ daikin_cn_wired_incoming_packet (const uint8_t * payload)
    {
       jo_t j = jo_comms_alloc ();
       jo_base16 (j, "data", payload, CNW_PKT_LEN);
+      cn_wired_stats (j);
       revk_info ("rx", &j);
    }
 
@@ -701,7 +702,8 @@ daikin_cn_wired_send_modes (void)
       revk_info (daikin.talking ? "tx" : "cannot-tx", &j);
    }
 
-   if (cn_wired_write_bytes (buf)) {
+   if (cn_wired_write_bytes (buf) == ESP_OK)
+   {
       // Modes sent
       daikin.control_changed = 0;
       // This validates fan speed controls by parsing back value
@@ -2877,13 +2879,13 @@ app_main ()
             } else if (proto_type () == PROTO_TYPE_CN_WIRED)
             {                   // CN WIRED
                uint8_t buf[CNW_PKT_LEN];
+               esp_err_t e = cn_wired_read_bytes (buf, CNW_READ_TIMEOUT);
 
-               if (cn_wired_read_bytes (buf, CNW_READ_TIMEOUT) == 0)
+               if (e == ESP_ERR_TIMEOUT)
                {
                   daikin.online = false;
                   comm_timeout (NULL, 0);
-               }
-               else
+               } else if (e == ESP_OK)
                {
                   daikin_cn_wired_incoming_packet (buf);
 
@@ -2896,6 +2898,9 @@ app_main ()
                   // we also know that some ACs (FTN15PV1L) don't take commands on 1st try if we don't
                   // do so. Perhaps they think we are offline.
                   daikin_cn_wired_send_modes ();
+               } else
+               {
+                  daikin.talking = 0;   // Not ready?
                }
             } else if (proto_type () == PROTO_TYPE_S21)
             {                   // Older S21
