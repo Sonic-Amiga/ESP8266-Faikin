@@ -31,18 +31,17 @@ bit	no.faikinauto								// Do not show faikin auto controls
 bit	no.hvacaction	1							// Do not track/report hvac_action for Faikin auto mode in HA
 bit	no.fanauto								// Do not control fan in faikin auto mode
 bit	no.homepreset								// Do not include a home in HA preset list
-
 bit	no.guessnight								// Do not assume someone else can set auto after we set night
-
-bit	no.icons			.live=1					// Don't show icons on web UI
+bit	no.icons			.live=1					// Do not show icons on web UI
 
 bit	alwaysnight			.old="alwaysquiet"			// Always set Night mode not Auto
 
 bit	dark									// Dark mode
 bit	ha.enable	1		.old="ha"				// Home Assistance
 bit	ha.switches								// Set additional HA switches
-bit	ha.fanrpm								// Use RPM not Hz for fan speed
-bit	ha.comprpm								// Use RPM not Hz for comp speed
+bit	ha.fanrpm								// Use RPM not Hz for HA fan speed
+bit	ha.comprpm								// Use RPM not Hz for HA comp speed
+bit	ha.1c									// Force 1C steps in HA temp setting
 
 #ifdef CONFIG_BT_NIMBLE_ENABLED
 bit	ble									// Enable BLE
@@ -72,7 +71,7 @@ u8	heat.back	6		.live=1					// For heating, pull (decrease) target sent to airco
 
 bit	temp.track	0		.live=1					// Set target temp based on Daikin measured temp not required target
 bit	temp.adjust	1		.live=1					// Adjust target temp allowing for different Daikin measure to external measure
-u16	temp.noflap	0		.live=1					// Min time between target temp changes (seconds).
+u16	temp.noflap	0		.live=1					// Min time between target temp changes (seconds)
 
 u16	auto.0				.live=1					// HHMM format turn off time
 u16	auto.1				.live=1					// HHMM format turn on time
