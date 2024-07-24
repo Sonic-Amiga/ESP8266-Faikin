@@ -564,9 +564,8 @@ void
 daikin_cn_wired_incoming_packet (const uint8_t * payload)
 {
    static int cnw_retries = 0;
+   uint8_t pkt_type;
    int8_t new_mode;
-   jo_t j;
-
    uint8_t c = cnw_checksum (payload);
 
    if (c != payload[CNW_CRC_TYPE_OFFSET])
@@ -606,15 +605,21 @@ daikin_cn_wired_incoming_packet (const uint8_t * payload)
       report_uint8 (swingv, 0);
    }
 
+   pkt_type = payload[CNW_CRC_TYPE_OFFSET] & CNW_TYPE_MASK;
+
    if (b.dumping)
    {
       jo_t j = jo_comms_alloc ();
+
+      if (pkt_type > CNW_MODE_CHANGED)
+         jo_string (j, "error", "Unknown message type");
+
       jo_base16 (j, "data", payload, CNW_PKT_LEN);
       cn_wired_stats (j);
       revk_info ("rx", &j);
    }
 
-   switch (payload[CNW_CRC_TYPE_OFFSET] & CNW_TYPE_MASK)
+   switch (pkt_type)
    {
    case CNW_SENSOR_REPORT:
       report_float (home, decode_bcd (payload[CNW_TEMP_OFFSET]));
@@ -633,10 +638,6 @@ daikin_cn_wired_incoming_packet (const uint8_t * payload)
       // From testing with people we know there are also packets of other types.
       // Example of a type 2 packet: 0038000000000022
       // We currently don't know what they mean.
-      j = jo_comms_alloc ();
-      jo_string (j, "error", "Unknown message type");
-      jo_base16 (j, "dump", payload, CNW_PKT_LEN);
-      revk_error ("rx", &j);
       break;
    }
 }
