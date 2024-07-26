@@ -19,5 +19,5 @@ The board looks like it has a USB port, while in reality it's a serial port, jus
 See the supplied schematics (reverse-engineered) for pinout. In order to flash the board, it needs to be
 connected using a usb-to-serial adapter board. [WaveShare module](https://www.waveshare.com/pl2303-usb-uart-board-mini.htm)
 works great for me, but anything ot this kind should do the job.
-<img src="Serial_Connection.jpg"><BR>
+<img src="Serial_connection.jpg"><BR>
 An "UART" switch, located on Daichi board, enables firmware download mode. Move it up then press reset button before running esptool.
