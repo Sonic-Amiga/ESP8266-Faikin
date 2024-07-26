@@ -1,23 +1,9 @@
-# Daichi DW22-B
+# WeMos D1-Mini
 
-Daichi is a russian domestically designed universal A/C controller. It supports wide variety of
-conditioners of various vendors, including Daikin, but it has the following disadvantages:
+Some users are successfully running Faikin-8266 on a stock WeMos D1-Mini board, available worldwide.
+ESP8266 is officially 5V-tolerant, so it can be connected to the AC directly.
 
-- Only works with a proprietary phone app over a proprietary cloud using a proprietary protocol
-- Does not support any sort of local connection
-- Software is slow and of poor quality
-
-This board is the original target for Faikin-8266 port.
-
-<img src="Daichi_PCB.png"><BR>
-
-Original vendor web page: http://aircon-wifi.ru/rac (russian language only)
-
-# Installing Faikin
-
-The board looks like it has a USB port, while in reality it's a serial port, just using a USB-Mini connector.
-See the supplied schematics (reverse-engineered) for pinout. In order to flash the board, it needs to be
-connected using a usb-to-serial adapter board. [WaveShare module](https://www.waveshare.com/pl2303-usb-uart-board-mini.htm)
-works great for me, but anything ot this kind should do the job.
-<img src="Serial_Connection.jpg"><BR>
-An "UART" switch, located on Daichi board, enables firmware download mode. Move it up then press reset button before running esptool.
+This picture is contributed by user, showing connection to FTN15PV1L unit with CN_WIRED interface
+<img src="D1Mini-CN_WIRED.jpg"><BR>
+!!! Note that ** THESE BOARDS USE 5V POWER**, and higher voltage (e. g. 12V) may be present on the connector !!!
+Triple-check your voltages and pinouts !!!
