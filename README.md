@@ -34,8 +34,8 @@ put together such a board with minimum efforts.
 
 # Supported hardware
 
-* Daichi DW22-B Wi-fi controller ver.03
-* Any ESP8266-based board of your own design; reference schematic included.
+This port technically runs on any ESP8266 board. At the moment 4MB and 8 MB flash sizes are supported. Please see
+Hardware folder of this repository for more info.
 
 # Conditioner compatibility list
 
@@ -63,6 +63,16 @@ esptool.py -p COM3 -b 460800 --after hard_reset write_flash --flash_mode dio --f
 It is enough to do this only once; after you have the proper bootloader, you only need to replace the application (Faikin-8266.bin)
 
 If you built from source, the same result is achieved by simply running "make flash".
+
+# Updates
+
+The firmware defaults to http://ota.revk.uk/ . The author of original ESP32 firmware kindly agreed to
+host a 8266 port on his server. Publishing happens with a delay, however, so there's one more update server
+at the address http://faikin-ota.home-assistant.my/ . Beta releases for testing will only appear there.
+It is possible to change the URL in advanced settings.
+
+The second update server has been kindly provided by GB Network solutions, https://www.gbnetwork.my/ .
+Huge thanks for hosting the project!
 
 # Set-up
 
