@@ -1781,7 +1781,12 @@ web_status (httpd_req_t * req)
 {
    jo_t j = daikin_status ();
    const char *reason;
-   int t = revk_shutting_down (&reason);
+   int t;
+
+   if (b.loopback)   
+      jo_bool (j, "loopback", 1);
+
+   t = revk_shutting_down (&reason);
    if (t)
       jo_string (j, "shutdown", reason);
 
