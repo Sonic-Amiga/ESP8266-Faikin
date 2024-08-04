@@ -90,6 +90,18 @@ proto_type (void)
    return proto / PROTO_SCALE;
 }
 
+static int
+invert_tx_line (void)
+{
+   return swaptx;
+}
+
+static int
+invert_rx_line (void)
+{
+   return swaprx;
+}
+
 static const char *
 proto_name (void)
 {
@@ -2641,6 +2653,15 @@ uart_setup (void)
       };
       if (!err)
          err = uart_param_config (uart, &uart_config);
+      if (!err)
+      {
+         uint32_t i = 0;
+         if (invert_rx_line ())
+            i |= UART_INVERSE_RXD;
+         if (invert_tx_line ())
+            i |= UART_INVERSE_TXD;
+         err = uart_set_line_inverse (uart, i);
+      }
       if (!err)
          err = uart_driver_install (uart, 1024, 0, 0, NULL, 0);
       if (!err)
