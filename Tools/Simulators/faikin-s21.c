@@ -283,6 +283,28 @@ main(int argc, const char *argv[])
 
 			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
 			break;
+		 case '2':
+		    // BRP069B41 sends this as first command. If NAK is received, it keeps retrying
+			// and doesn't send anything else. Suggestion - query AC features
+		    if (debug)
+		       printf(" -> unknown ('F2')\n");
+			response[3] = 0x34; // No idea what this is, taken from my FTXF20D
+			response[4] = 0x3A;
+			response[5] = 0x00;
+			response[6] = 0x80;
+
+		    s21_reply(p, response, buf, S21_PAYLOAD_LEN);
+			break;
+		 case '3':
+		    if (debug)
+		       printf(" -> powerful ('F3') %d\n", powerful);
+			response[3] = 0x30; // No idea what this is, taken from my FTXF20D
+			response[4] = 0xFE;
+			response[5] = 0xFE;
+			response[6] = powerful ? 2 : 0;
+
+		    s21_reply(p, response, buf, S21_PAYLOAD_LEN);
+			break;
 		 case '4':
 		    if (debug)
 		       printf(" -> unknown ('F4')\n");
@@ -305,8 +327,8 @@ main(int argc, const char *argv[])
 			break;
 		 case '6':
 		    if (debug)
-		       printf(" -> powerful %d\n", powerful);
-		    response[3] = powerful ? '2' : '0';
+		       printf(" -> powerful ('F6') %d\n", powerful);
+		    response[3] = powerful ? 2 : 0;
 			response[4] = 0;
 			response[5] = 0;
 			response[6] = 0;
