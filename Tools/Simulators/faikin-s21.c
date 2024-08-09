@@ -119,6 +119,8 @@ static void send_temp(int p, unsigned char *response, const unsigned char *cmd, 
 	s21_reply(p, response, cmd, S21_PAYLOAD_LEN);
 }
 
+static int f8_drop_count = 0;
+
 int
 main(int argc, const char *argv[])
 {
@@ -352,9 +354,25 @@ main(int argc, const char *argv[])
 			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
 			break;
 		case '8':
-			// Unknown, values taken from FTXF20D
 		    if (debug)
 		       printf(" -> unknown ('F8')\n");
+#if 1
+			// HACK, which makes BRP069B41 actually working. We need to cause timeout, then
+			// eventually respond with NAK. After about 4 NAKs the controller quits sending
+			// F8 and starts running normally. Queries sequence: F2 F1 F3 F4 F5 then some R sensor
+			// If we just keep NAKing, the controller will keep sending F8 and won't move on.
+			// If we respond to F8, the controller wants F9, then FB, FC, etc. I got tired of
+			// implementing them all. Probably will do it later, for now let's stick to what
+			// we have here.
+			// The solution was found by occasion while developing and testing the simulator.
+			// Perhaps that's a result of controller firmware bug.
+			f8_drop_count++;
+			if (f8_drop_count < 15) {
+		        buf[0] = 0; // Just silently drop the packet
+				continue;
+			}
+			f8_drop_count = 0;
+#else
 		    response[3] = 0x30;
 			response[4] = 0x32;
 			response[5] = 0x30;
@@ -362,6 +380,7 @@ main(int argc, const char *argv[])
 
 			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
 			break;
+#endif
  /*
   * I also tried the following commands on my FTXF20D and got
   * responses as listed. It is currently unknown what they report.
