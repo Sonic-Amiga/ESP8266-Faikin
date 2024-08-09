@@ -286,10 +286,15 @@ main(int argc, const char *argv[])
 		 case '2':
 		    // BRP069B41 sends this as first command. If NAK is received, it keeps retrying
 			// and doesn't send anything else. Suggestion - query AC features
+			// The response values here are kindly provided by a user in reverse engineering
+			// thread: https://github.com/revk/ESP32-Faikin/issues/408#issuecomment-2278296452
+			// Correspond to A/C models CTXM60RVMA, CTXM35RVMA
+			// It was experimentally found that with different values, given by FTXF20D, the
+			// controller falls into error 252 and refuses to accept A/C commands over HTTP.
 		    if (debug)
 		       printf(" -> unknown ('F2')\n");
-			response[3] = 0x34; // No idea what this is, taken from my FTXF20D
-			response[4] = 0x3A;
+			response[3] = 0x3D; // FTXF20D: 0x34;
+			response[4] = 0x3B; // FTXF20D: 0x3A;
 			response[5] = 0x00;
 			response[6] = 0x80;
 
@@ -306,11 +311,12 @@ main(int argc, const char *argv[])
 		    s21_reply(p, response, buf, S21_PAYLOAD_LEN);
 			break;
 		 case '4':
+		    // Also taken from CTXM60RVMA, CTXM35RVMA. Not researched yet.
 		    if (debug)
 		       printf(" -> unknown ('F4')\n");
-		    response[3] = 0x30; // No idea what this is, taken from my FTXF20D
+		    response[3] = 0x30;
 			response[4] = 0x00;
-			response[5] = 0xA0;
+			response[5] = 0x80; // FTXF20D: 0xA0;
 			response[6] = 0x30;
 
 			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
@@ -345,12 +351,20 @@ main(int argc, const char *argv[])
 
 			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
 			break;
+		case '8':
+			// Unknown, values taken from FTXF20D
+		    if (debug)
+		       printf(" -> unknown ('F8')\n");
+		    response[3] = 0x30;
+			response[4] = 0x32;
+			response[5] = 0x30;
+			response[6] = 0x30;
+
+			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
+			break;
  /*
   * I also tried the following commands on my FTXF20D and got
   * responses as listed. It is currently unknown what they report.
-  * 'F2' 06 02 47 32 34 3A 00 80 67 03
-  * 'F3' 06 02 47 33 30 30 30 00 0A 03
-  * 'F8' 06 02 47 38 30 32 30 30 41 03
   * 'F9' 06 02 47 39 B4 FF FF 30 62 03
   * 'RI' 06 02 53 49 35 36 32 2B 64 03 - the same data as for 'RH', probably firmware bug
   */
