@@ -25,12 +25,17 @@ put together such a board with minimum efforts.
 
 # Functionality
 
-* Compatible with original BRP series Daikin online controllers; drop-in replacement
+* Compatible with original BRP series Daikin online controllers; drop-in replacement for use with home automation systems.
 * Simple local web based control with live websocket status, easy to save as desktop icon on a mobile phone.
 * MQTT reporting and controls
 * Includes linux mysql/mariadb based logging and graphing tools
 * Works with [EnvMon](https://github.com/revk/ESP32-EnvMon) Environmental Monitor for finer control and status display
-* Automatically works out if S21 or alternative protocol used on ducted units
+* Supports wide variety of units with automatic detection of a protocol being used.
+* Supported A/C interfaces: S21, S403, X50A, CN_WIRED (AKA CNW)
+
+** !! WARNING !!! ** The `S403` port is a *non-isolated* `S21` port, i.e. it is at **MAINS POWER** levels, and dangerous.
+Any connected device, such as a Faikin, needs to be inside the case. Touch or otherwise fiddling with running hardware,
+connected to this port, ** IS POTENTIALLY LETHAL ** !!!
 
 # Supported hardware
 
