@@ -72,7 +72,7 @@ static void s21_nak(int p, char *buf)
 {
    static unsigned char response = NAK;
 
-   printf(" -> Unknown command, sending NAK\n");
+   printf(" -> Unknown command %c%c, sending NAK\n", buf[S21_CMD0_OFFSET], buf[S21_CMD1_OFFSET]);
    serial_write(p, &response, 1);
    
    buf[0] = 0; // Clear read buffer
@@ -108,13 +108,13 @@ static void s21_reply(int p, unsigned char *response, const unsigned char *cmd, 
 	s21_nonstd_reply(p, response, 2 + payload_len); // Body is two cmd bytes plus payload
 }
 
-static void send_temp(int p, unsigned char *response, const unsigned char *cmd, int value)
+static void send_temp(int p, unsigned char *response, const unsigned char *cmd, int value, const char *name)
 {
 	char buf[5];
 	
 	snprintf(buf, sizeof(buf), "%+d", value);
 	if (debug)
-	   printf(" -> '%c' sensor = %s\n", cmd[2], buf);
+	   printf(" -> %s = %s\n", name, buf);
 
     // A decimal value from sensor is sent as ASCII value with sign,
 	// spelled backwards for some reason. One decimal place is assumed.
@@ -404,21 +404,18 @@ main(int argc, const char *argv[])
 		 // Query temperature sensors
 		 switch (buf[S21_CMD1_OFFSET]) {
 	     case 'H':
-		    send_temp(p, response, buf, home);
+		    send_temp(p, response, buf, home, "home");
 		    break;
 	     case 'I':
-		    send_temp(p, response, buf, inlet);
+		    send_temp(p, response, buf, inlet, "inlet");
 		    break;
 	     case 'a':
-		    send_temp(p, response, buf, outside);
+		    send_temp(p, response, buf, outside, "outside");
 		    break;
 	     case 'L':
-		    // No idea what this is, comments in Faikin code say it's fan speed
-			// This sample value was grabbed from my FTXF20D; when turned off,
-			// it reports '000'. Let's try. It should most likely read 052, because
-			// after some time it reported '350', should have been 053. This also
-			// follows logic of reporting sensor temperatures in inverse order
-			// (see send_temp())
+		 	if (debug)
+	   			printf(" -> fanrpm = 520\n");
+			// Order inverted, the same as in send_temp(). The value being sent is rpm divided by 10
 		    response[S21_PAYLOAD_OFFSET + 0] = '2';
 			response[S21_PAYLOAD_OFFSET + 1] = '5';
 			response[S21_PAYLOAD_OFFSET + 2] = '0';
