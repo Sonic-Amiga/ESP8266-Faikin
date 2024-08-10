@@ -111,13 +111,13 @@ proto_type (void)
 static int
 invert_tx_line (void)
 {
-   return swaptx;
+   return txinvert;
 }
 
 static int
 invert_rx_line (void)
 {
-   return swaprx;
+   return rxinvert;
 }
 
 static const char *
