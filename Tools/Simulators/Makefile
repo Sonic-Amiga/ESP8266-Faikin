@@ -1,9 +1,12 @@
-ifeq ($(shell uname),Darwin)
-INCLUDES := -I/usr/local/include/
-LIBS := -L/usr/local/Cellar/popt/1.18/lib/
-else
+OS := $(shell uname)
 LIBS :=
 INCLUDES :=
+ifeq (${OS},Darwin)
+INCLUDES := -I/usr/local/include/
+LIBS := -L/usr/local/Cellar/popt/1.18/lib/
+endif
+ifneq (,$(findstring MINGW,${OS}))
+LIBS := -lintl -liconv -static
 endif
 
 ESP_DIR := ../../ESP
@@ -15,3 +18,6 @@ faikin-s21: faikin-s21.c ${ESP_DIR}/main/daikin_s21.h ${ESP_DIR}/main/faikin_enu
 	gcc -O -g -o $@ $< -lpopt -I${ESP_DIR} ${INCLUDES} ${LIBS}
 
 all: faikin-x50 faikin-s21
+
+clean:
+	rm -f faikin-x50 faikin-s21 faikin-x50.exe faikin-s21.exe
