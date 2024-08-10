@@ -16,8 +16,8 @@ bit	no.s21				.live=1	.fix=1				// Do not try S21 protocol
 bit	no.x50a				.live=1	.fix=1				// Do not try X50A protocol
 bit	no.cnwired	0		.live=1	.fix=1				// Do not try CN_WIRED protocol
 bit	no.as		1		.live=1	.fix=1				// Do not try Altherma_S protocol
-bit	txinvert		    .live=1	.fix=1 .old="swaptx"	// Invert Tx line
-bit	rxinvert		    .live=1	.fix=1 .old="swaprx"	// Invert Rx line
+bit	txinvert		    .fix=1 .old="swaptx"	    // Invert Tx line
+bit	rxinvert		    .fix=1 .old="swaprx"	    // Invert Rx line
 
 bit	no.demand								// Disable demand control
 bit	no.swingw								// Unit does not have swing (W)
