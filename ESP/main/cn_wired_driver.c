@@ -37,6 +37,7 @@ struct CN_Wired_Receiver {
     int        rx_bytes;    // Bytes counter
     int        rx_bits;     // Bits counter
     gpio_num_t pin;
+    int        invert;      // Invert the signal
     TaskHandle_t task;
 };
 
@@ -49,6 +50,7 @@ enum State {
 struct CN_Wired_Transmitter {
     uint8_t buffer[CNW_PKT_LEN];
     enum State tx_state;
+    int        invert;    // Invert the signal
     int        line_state;
     int        tx_bytes;
     int        tx_bits;
@@ -99,7 +101,7 @@ static int isReceiving (const struct CN_Wired_Receiver* rx) {
 static void rx_interrupt (void* arg)
 {
     struct CN_Wired_Receiver* rx = arg;
-    int new_state = gpio_get_level(rx->pin);
+    int new_state = gpio_get_level(rx->pin) ^ rx->invert;
 
     if (new_state == rx->state) {
         return; // Some rubbish
@@ -151,7 +153,32 @@ static void rx_interrupt (void* arg)
     rx->state       = new_state;
 }
 
-void tx_interrupt (void* arg)
+static void tx_update_timings(struct CN_Wired_Transmitter* tx)
+{
+    if (tx->tx_bytes < CNW_PKT_LEN) {
+        // Ticks value for the next bit.
+        tx->next_bit = ((tx->buffer[tx->tx_bytes] >> tx->tx_bits) & 1) ? tx->t_one : tx->t_zero;
+        // Advance bit/byte counters
+        if (tx->tx_bits < 7) {
+            tx->tx_bits++;
+        } else {
+            tx->tx_bits = 0;
+            tx->tx_bytes++;
+        }
+    } else if (tx->tx_state == TX_DATA) {
+        // The current bit we've just started is the final one, no more data.
+        // After the space, issue a t_delay HIGH
+        tx->tx_state = TX_END;
+        tx->next_bit = tx->t_delay;
+    } else {
+        // tx->tx_state == TX_END. We've just started our DELAY.
+        // It will be followed by t_end LOW, after which we're done
+        tx->t_space = tx->t_end;
+        tx->next_bit = 0;
+    }
+}
+
+static void tx_interrupt (void* arg)
 {
     struct CN_Wired_Transmitter* tx = arg;
     int new_state = !tx->line_state;
@@ -164,29 +191,8 @@ void tx_interrupt (void* arg)
         // LOW ->HIGH. Bit starts
         tx_timer_reload(tx, tx->next_bit);
         tx_set_high(tx);
-
         // We've set our line and timer, now we have some time for housekeeping.
-        if (tx->tx_bytes < CNW_PKT_LEN) {
-            // Ticks value for the next bit.
-            tx->next_bit = ((tx->buffer[tx->tx_bytes] >> tx->tx_bits) & 1) ? tx->t_one : tx->t_zero;
-            // Advance bit/byte counters
-            if (tx->tx_bits < 7) {
-                tx->tx_bits++;
-            } else {
-                tx->tx_bits = 0;
-                tx->tx_bytes++;
-            }
-        } else if (tx->tx_state == TX_DATA) {
-            // The current bit we've just started is the final one, no more data.
-            // After the space, issue a t_delay HIGH
-            tx->tx_state = TX_END;
-            tx->next_bit = tx->t_delay;
-        } else {
-            // tx->tx_state == TX_END. We've just started our DELAY.
-            // It will be followed by t_end LOW, after which we're done
-            tx->t_space = tx->t_end;
-            tx->next_bit = 0;
-        }
+        tx_update_timings(tx);
     } else {
         // LOW->HIGH, no next_bit set. We've just completed our final pulse and turning idle.
         tx_set_high(tx);
@@ -196,10 +202,38 @@ void tx_interrupt (void* arg)
     tx->line_state = new_state;
 }
 
-esp_err_t cn_wired_driver_install (gpio_num_t rx, gpio_num_t tx)
+// A version of the above, but for inverted tx pin, therefore tx_set_high()
+// and tx_set_low() are swapped. We do it to avoid excess checks, to make
+// our timings as stable as possible.
+void inverted_tx_interrupt (void* arg)
+{
+    struct CN_Wired_Transmitter* tx = arg;
+    int new_state = !tx->line_state;
+
+    if (!new_state) {
+        // HIGH -> LOW. Space starts
+        tx_timer_reload(tx, tx->t_space);
+        tx_set_high(tx);
+    } else if (tx->next_bit) {
+        // LOW ->HIGH. Bit starts
+        tx_timer_reload(tx, tx->next_bit);
+        tx_set_low(tx);
+        // We've set our line and timer, now we have some time for housekeeping.
+        tx_update_timings(tx);
+    } else {
+        // LOW->HIGH, no next_bit set. We've just completed our final pulse and turning idle.
+        tx_set_low(tx);
+        tx->tx_state = TX_IDLE;
+    }
+
+    tx->line_state = new_state;
+}
+
+esp_err_t cn_wired_driver_install (gpio_num_t rx, gpio_num_t tx, int rx_invert, int tx_invert)
 {
     esp_err_t err;
 
+    rx_obj.invert   = rx_invert ? 1 : 0;
     rx_obj.state    = 1;
     rx_obj.rx_bytes = -1; // "Wait for sync" state
     rx_obj.pin      = rx;
@@ -207,6 +241,7 @@ esp_err_t cn_wired_driver_install (gpio_num_t rx, gpio_num_t tx)
 
     xTaskNotifyStateClear(rx_obj.task);
 
+    tx_obj.invert    = tx_invert;
     tx_obj.tx_state  = TX_IDLE;
     tx_obj.gpio_mask = 1 << tx;
 
@@ -234,7 +269,7 @@ esp_err_t cn_wired_driver_install (gpio_num_t rx, gpio_num_t tx)
     err = gpio_set_intr_type(rx, GPIO_INTR_ANYEDGE);
     if (err)
         return err;
-    err = hw_timer_init(tx_interrupt, &tx_obj);
+    err = hw_timer_init(tx_invert ? inverted_tx_interrupt : tx_interrupt, &tx_obj);
  
     return err;
 }
@@ -268,13 +303,19 @@ esp_err_t cn_wired_write_bytes (const uint8_t *buffer)
     tx_obj.tx_bytes   = 0;
     tx_obj.line_state = 0;                         // We start with SYNC low
 
-    // Use hw_timer_alarm_us() to guarantee that the timer is set up correctly.
-    // This will kickstart the transmitter. When the timer fires, the SYNC pulse
-    // will be over and start bit will be transmitted by our state machine.
-    // Constant of -20 was fine-tuned by trial and error using DUMP_TIMINGS feature
-    // in Arduino bridge
-    hw_timer_alarm_us (SYNC_LENGTH - 20, false);
-    tx_set_low(&tx_obj);
+    if (tx_obj.invert)
+    {
+        // Use hw_timer_alarm_us() to guarantee that the timer is set up correctly.
+        // This will kickstart the transmitter. When the timer fires, the SYNC pulse
+        // will be over and start bit will be transmitted by our state machine.
+        // Constant of -20 was fine-tuned by trial and error using DUMP_TIMINGS feature
+        // in Arduino bridge
+        hw_timer_alarm_us (SYNC_LENGTH - 20, false);
+        tx_set_high(&tx_obj);
+    } else {
+        hw_timer_alarm_us (SYNC_LENGTH - 20, false);
+        tx_set_low(&tx_obj);
+    }
 
     // hw_timer_alarm_us() has set up clock divider, so that hw_timer_get_clkdiv()
     // now returns a proper value. We rely on this behavior in order to pre-cook

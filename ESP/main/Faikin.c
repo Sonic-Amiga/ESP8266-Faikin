@@ -2721,9 +2721,8 @@ uart_setup (void)
 
    if (proto_type () == PROTO_TYPE_CN_WIRED)
    {
-      // Hardcoded for UART0. Not sure if it even can be used with UART1;
-      // because it seems Rx is not connected in the chip
-      err = cn_wired_driver_install (GPIO_NUM_3, GPIO_NUM_1);
+      // Hardcoded for UART0, because UART1 is tx-only
+      err = cn_wired_driver_install (GPIO_NUM_3, GPIO_NUM_1, invert_rx_line (), invert_tx_line ());
    } else {
       uart_config_t uart_config = {
          .baud_rate = (proto_type () == PROTO_TYPE_S21) ? 2400 : 9600,

@@ -4,7 +4,7 @@
 #include <driver/gpio.h>
 #include "revk.h"
 
-esp_err_t cn_wired_driver_install (gpio_num_t rx, gpio_num_t tx);
+esp_err_t cn_wired_driver_install (gpio_num_t rx, gpio_num_t tx, int rx_invert, int tx_invert);
 void cn_wired_driver_delete (void);
 esp_err_t cn_wired_read_bytes (uint8_t *rx, TickType_t timeout);
 esp_err_t cn_wired_write_bytes (const uint8_t *buf);
