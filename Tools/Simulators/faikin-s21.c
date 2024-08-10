@@ -118,12 +118,28 @@ static void send_temp(int p, unsigned char *response, const unsigned char *cmd, 
 
     // A decimal value from sensor is sent as ASCII value with sign,
 	// spelled backwards for some reason. One decimal place is assumed.
-	response[3] = buf[3];
-	response[4] = buf[2];
-	response[5] = buf[1];
-	response[6] = buf[0];
+	response[S21_PAYLOAD_OFFSET + 0] = buf[3];
+	response[S21_PAYLOAD_OFFSET + 1] = buf[2];
+	response[S21_PAYLOAD_OFFSET + 2] = buf[1];
+	response[S21_PAYLOAD_OFFSET + 3] = buf[0];
 	
 	s21_reply(p, response, cmd, S21_PAYLOAD_LEN);
+}
+
+static void send_int(int p, unsigned char *response, const unsigned char *cmd, int value, const char *name)
+{
+	char buf[4];
+
+	snprintf(buf, sizeof(buf), "%03d", value);
+	if (debug)
+	   	printf(" -> %s = %s\n", name, buf);
+
+	// Order inverted, the same as in send_temp()
+    response[S21_PAYLOAD_OFFSET + 0] = buf[2];
+	response[S21_PAYLOAD_OFFSET + 1] = buf[1];
+	response[S21_PAYLOAD_OFFSET + 2] = buf[0];
+			
+	s21_reply(p, response, buf, 3); // Nontypical response, 3 bytes, not 4!
 }
 
 int
@@ -413,15 +429,21 @@ main(int argc, const char *argv[])
 		    send_temp(p, response, buf, outside, "outside");
 		    break;
 	     case 'L':
-		 	if (debug)
-	   			printf(" -> fanrpm = 520\n");
-			// Order inverted, the same as in send_temp(). The value being sent is rpm divided by 10
-		    response[S21_PAYLOAD_OFFSET + 0] = '2';
-			response[S21_PAYLOAD_OFFSET + 1] = '5';
-			response[S21_PAYLOAD_OFFSET + 2] = '0';
-			
-			s21_reply(p, response, buf, 3); // Nontypical response, 3 bytes, not 4!
+		 	send_int(p, response, buf, 52, "fanrpm");
 		    break;
+	     case 'N':
+		 	// These two are queried by BRP069B41, at least for protocol version 1, but
+			// we have no idea what they mean. Not found anywhere in http responses.
+			// We're setting some distinct values for possible identification in case
+			// if they pop up somewhere. Format is known from FTXF20D.
+		    send_temp(p, response, buf, 235, "unknown ('RN')");
+		    break;
+	     case 'X':
+		    send_temp(p, response, buf, 215, "unknown ('RX')");
+		    break;
+		 case 'd':
+		 	send_int(p, response, buf, 42, "Unknown ('Rd')");
+			break;
 		 default:
 		    s21_nak(p, buf);
 		    continue;
