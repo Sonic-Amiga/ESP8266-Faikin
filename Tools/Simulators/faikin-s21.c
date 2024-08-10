@@ -85,20 +85,26 @@ static void s21_ack(int p)
    serial_write(p, &response, 1);
 }
 
-static void s21_reply(int p, unsigned char *response, const unsigned char *cmd, int payload_len)
+static void s21_nonstd_reply(int p, unsigned char *response, int body_len)
 {
-   int pkt_len = S21_MIN_PKT_LEN + payload_len;
+   int pkt_len = 3 + body_len; // 3 bytes for STX, checksum, ETX
    int l;
 
    s21_ack(p); // Send ACK before the reply
 
-   response[S21_STX_OFFSET]  = STX;
-   response[S21_CMD0_OFFSET] = cmd[S21_CMD0_OFFSET] + 1;
-   response[S21_CMD1_OFFSET] = cmd[S21_CMD1_OFFSET];
-   response[S21_PAYLOAD_OFFSET + payload_len] = s21_checksum(response, pkt_len);
-   response[S21_PAYLOAD_OFFSET + payload_len + 1] = ETX;
+   response[S21_STX_OFFSET] = STX; // +2 below accounts for this
+   response[S21_CMD0_OFFSET + body_len] = s21_checksum(response, pkt_len);
+   response[S21_CMD0_OFFSET + body_len + 1] = ETX;
 
    serial_write(p, response, pkt_len);
+}
+
+static void s21_reply(int p, unsigned char *response, const unsigned char *cmd, int payload_len)
+{
+	response[S21_CMD0_OFFSET] = cmd[S21_CMD0_OFFSET] + 1;
+    response[S21_CMD1_OFFSET] = cmd[S21_CMD1_OFFSET];
+
+	s21_nonstd_reply(p, response, 2 + payload_len); // Body is two cmd bytes plus payload
 }
 
 static void send_temp(int p, unsigned char *response, const unsigned char *cmd, int value)
@@ -118,8 +124,6 @@ static void send_temp(int p, unsigned char *response, const unsigned char *cmd, 
 	
 	s21_reply(p, response, cmd, S21_PAYLOAD_LEN);
 }
-
-static int f8_drop_count = 0;
 
 int
 main(int argc, const char *argv[])
@@ -355,32 +359,21 @@ main(int argc, const char *argv[])
 			break;
 		case '8':
 		    if (debug)
-		       printf(" -> unknown ('F8')\n");
-#if 1
-			// HACK, which makes BRP069B41 actually working. We need to cause timeout, then
-			// eventually respond with NAK. After about 4 NAKs the controller quits sending
-			// F8 and starts running normally. Queries sequence: F2 F1 F3 F4 F5 then some R sensor
-			// If we just keep NAKing, the controller will keep sending F8 and won't move on.
-			// If we respond to F8, the controller wants F9, then FB, FC, etc. I got tired of
-			// implementing them all. Probably will do it later, for now let's stick to what
-			// we have here.
-			// The solution was found by occasion while developing and testing the simulator.
-			// Perhaps that's a result of controller firmware bug.
-			f8_drop_count++;
-			if (f8_drop_count < 15) {
-		        buf[0] = 0; // Just silently drop the packet
-				continue;
-			}
-			f8_drop_count = 0;
-#else
+		       printf(" -> Protocol version = 1.0\n");
+			// 'F8' - this is found out to be protocol version.
+			// My FTXF20D replies with '0020' (assuming reading in reverse like everything else).
+			// If we say that, BRP069B41 then asks for F9 (we know it's different form of home/outside sensor)
+			// then proceeds requiring more commands, majority of english alphabet. I got tired implementing
+			// all of them and tried to downgrade the response to '0000'. This caused the controller sending
+			// 'MM' command (see below), and then it goes online with our emulated A/C.
+			// '0010' gives the same results
 		    response[3] = 0x30;
-			response[4] = 0x32;
+			response[4] = 0x31; // FTXF20D: 0x32;
 			response[5] = 0x30;
 			response[6] = 0x30;
 
 			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
 			break;
-#endif
  /*
   * I also tried the following commands on my FTXF20D and got
   * responses as listed. It is currently unknown what they report.
@@ -392,9 +385,23 @@ main(int argc, const char *argv[])
 		    s21_nak(p, buf);
 		    continue;
 		 }
-	  } else if (buf[1] == 'R') {
+	  } else if (buf[S21_CMD0_OFFSET] == 'M') {
+		if (debug)
+		    printf(" -> unknown ('F4')\n");
+		// This is sent by BRP069B41 for protocol version 1 (see F8 description above)
+		// I experimentally found out that this command doesn't have a second
+		// byte, and the A/C always responds with this. Note non-standard
+		// response form.
+		response[S21_CMD0_OFFSET] = 'M';
+		response[2] = 'F';
+		response[3] = 'F';
+		response[4] = 'F';
+		response[5] = 'F';
+
+		s21_nonstd_reply(p, response, 5);
+	  } else if (buf[S21_CMD0_OFFSET] == 'R') {
 		 // Query temperature sensors
-		 switch (buf[2]) {
+		 switch (buf[S21_CMD1_OFFSET]) {
 	     case 'H':
 		    send_temp(p, response, buf, home);
 		    break;
