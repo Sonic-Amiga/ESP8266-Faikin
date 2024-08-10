@@ -87,12 +87,13 @@ static void s21_ack(int p)
 
 static void s21_nonstd_reply(int p, unsigned char *response, int body_len)
 {
-   int pkt_len = 3 + body_len; // 3 bytes for STX, checksum, ETX
+   int pkt_len = S21_FRAMING_LEN + body_len;
    int l;
 
    s21_ack(p); // Send ACK before the reply
 
-   response[S21_STX_OFFSET] = STX; // +2 below accounts for this
+   // Make a proper framing
+   response[S21_STX_OFFSET] = STX;
    response[S21_CMD0_OFFSET + body_len] = s21_checksum(response, pkt_len);
    response[S21_CMD0_OFFSET + body_len + 1] = ETX;
 
