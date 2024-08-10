@@ -388,7 +388,7 @@ main(int argc, const char *argv[])
 		 }
 	  } else if (buf[S21_CMD0_OFFSET] == 'M') {
 		if (debug)
-		    printf(" -> unknown ('F4')\n");
+		    printf(" -> unknown ('MM')\n");
 		// This is sent by BRP069B41 for protocol version 1 (see F8 description above)
 		// I experimentally found out that this command doesn't have a second
 		// byte, and the A/C always responds with this. Note non-standard
