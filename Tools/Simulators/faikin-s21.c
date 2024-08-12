@@ -469,6 +469,8 @@ main(int argc, const char *argv[])
 			// one by one and simply ran all the alphabet up to FZZ on my FTXF20D, so here it is.
 			unknown_cmd(p, response, buf, 0x33, 0x37, 0x83, 0x30);
 			break;
+		 // BRP069B41 also sends 'FY' command, but accepts NAK and stops doing so.
+		 // Therefore the command is optional. My FTXF20D also doesn't recognize it.
 		 default:
 		    // Respond NAK to an unknown command. My FTXF20D does the same.
 		    s21_nak(p, buf);
@@ -477,7 +479,8 @@ main(int argc, const char *argv[])
 	  } else if (buf[S21_CMD0_OFFSET] == 'M') {
 		if (debug)
 		    printf(" -> unknown ('MM')\n");
-		// This is sent by BRP069B41 for protocol version 1 (see F8 description above)
+		// This is sent by BRP069B41 and response is mandatory. The controller
+		// loops forever if NAK is received.
 		// I experimentally found out that this command doesn't have a second
 		// byte, and the A/C always responds with this. Note non-standard
 		// response form.
