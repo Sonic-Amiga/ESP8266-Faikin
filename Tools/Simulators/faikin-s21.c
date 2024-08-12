@@ -34,6 +34,8 @@ int   eco = 0;
 int   home = 245; // Multiplied by 10
 int   outside = 205;
 int   inlet = 185;
+int   protocol = 2; // Protocol version
+const char *model = "135D"; // Reported A/C model code
 
 static void hexdump_raw(const unsigned char *buf, unsigned int len)
 {
@@ -108,6 +110,21 @@ static void s21_reply(int p, unsigned char *response, const unsigned char *cmd, 
 	s21_nonstd_reply(p, response, 2 + payload_len); // Body is two cmd bytes plus payload
 }
 
+// A wrapper for unknown command. Useful because we're adding them in bulk
+static void unknown_cmd(int p, unsigned char *response, const unsigned char *cmd,
+                        unsigned char r0, unsigned char r1, unsigned char r2, unsigned char r3)
+{
+   if (debug)
+      printf(" -> unknown ('%c%c') = 0x%02X 0x%02X 0x%02X 0x%02X\n",
+	         cmd[S21_CMD0_OFFSET], cmd[S21_CMD1_OFFSET], r0, r1, r2, r3);
+   response[3] = r0;
+   response[4] = r1;
+   response[5] = r2;
+   response[6] = r3;
+
+   s21_reply(p, response, cmd, S21_PAYLOAD_LEN);
+}
+
 static void send_temp(int p, unsigned char *response, const unsigned char *cmd, int value, const char *name)
 {
 	char buf[5];
@@ -157,6 +174,8 @@ main(int argc, const char *argv[])
 	  {"comp", 0, POPT_ARG_INT, &comp, 0, "Comp", "1=H,2=C"},
 	  {"powerful", 0, POPT_ARG_NONE, &powerful, 0, "Debug"},
 	  {"dump", 'V', POPT_ARG_NONE, &dump, 0, "Dump"},
+	  {"protocol", 0, POPT_ARG_INT, &protocol, 0, "Reported protocol version"},
+	  {"model", 0, POPT_ARG_STRING, &model, 0, "Reported model code"},
 	  POPT_AUTOHELP {}
    };
 
@@ -175,6 +194,11 @@ main(int argc, const char *argv[])
       return -1;
    }
    poptFreeContext(optCon);
+
+   if (!model || strlen(model) < 4) {
+	  fprintf(stderr, "Invalid --model code given, 4 characters required");
+	  return -1;
+   }
 
    int p = open(port, O_RDWR);
 
@@ -314,14 +338,8 @@ main(int argc, const char *argv[])
 			// Correspond to A/C models CTXM60RVMA, CTXM35RVMA
 			// It was experimentally found that with different values, given by FTXF20D, the
 			// controller falls into error 252 and refuses to accept A/C commands over HTTP.
-		    if (debug)
-		       printf(" -> unknown ('F2')\n");
-			response[3] = 0x3D; // FTXF20D: 0x34;
-			response[4] = 0x3B; // FTXF20D: 0x3A;
-			response[5] = 0x00;
-			response[6] = 0x80;
-
-		    s21_reply(p, response, buf, S21_PAYLOAD_LEN);
+			// FTXF20D: 34 3A 00 80
+			unknown_cmd(p, response, buf, 0x3D, 0x3B, 0x00, 0x80);
 			break;
 		 case '3':
 		    if (debug)
@@ -334,15 +352,9 @@ main(int argc, const char *argv[])
 		    s21_reply(p, response, buf, S21_PAYLOAD_LEN);
 			break;
 		 case '4':
-		    // Also taken from CTXM60RVMA, CTXM35RVMA. Not researched yet.
-		    if (debug)
-		       printf(" -> unknown ('F4')\n");
-		    response[3] = 0x30;
-			response[4] = 0x00;
-			response[5] = 0x80; // FTXF20D: 0xA0;
-			response[6] = 0x30;
-
-			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
+		    // Also taken from CTXM60RVMA, CTXM35RVMA, and also error 252 if wrong
+			// FTXF20D: 30 00 A0 30
+			unknown_cmd(p, response, buf, 0x30, 0x00, 0x80, 0x30);
 			break;
 		 case '5':
 		    if (debug)
@@ -376,7 +388,7 @@ main(int argc, const char *argv[])
 			break;
 		case '8':
 		    if (debug)
-		       printf(" -> Protocol version = 1.0\n");
+		       printf(" -> Protocol version = %d\n", protocol);
 			// 'F8' - this is found out to be protocol version.
 			// My FTXF20D replies with '0020' (assuming reading in reverse like everything else).
 			// If we say that, BRP069B41 then asks for F9 (we know it's different form of home/outside sensor)
@@ -384,19 +396,79 @@ main(int argc, const char *argv[])
 			// all of them and tried to downgrade the response to '0000'. This caused the controller sending
 			// 'MM' command (see below), and then it goes online with our emulated A/C.
 			// '0010' gives the same results
-		    response[3] = 0x30;
-			response[4] = 0x31; // FTXF20D: 0x32;
-			response[5] = 0x30;
-			response[6] = 0x30;
+		    response[3] = '0';
+			response[4] = '0' + protocol;
+			response[5] = '0';
 
 			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
 			break;
- /*
-  * I also tried the following commands on my FTXF20D and got
-  * responses as listed. It is currently unknown what they report.
-  * 'F9' 06 02 47 39 B4 FF FF 30 62 03
-  * 'RI' 06 02 53 49 35 36 32 2B 64 03 - the same data as for 'RH', probably firmware bug
-  */
+		 case '9':
+			// In debug log temperature values will appear multiplied by 2
+		    response[3] = home / 5 + 0x80;
+			response[4] = outside / 5 + 0x80; // This is from Faikin sources, but FTXF20D returnx 0xFF here
+			response[5] = 0xFF; // Copied from FTFX20D
+			response[6] = 0x30; // Copied from FTFX20D
+
+		    if (debug)
+		       printf(" -> home = 0x%02X (%.1f) outside = 0x%02X (%.1f)\n",
+			          response[3], home / 10.0, response[4], outside / 10.0);
+
+			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
+			break;
+		 case 'C':
+		    // Protocol v2 - model code. Reported as "model=" in aircon/get_model_info.
+			// One of few commands, which is only sent by controller once after bootup.
+			// Even if communication is broken, then recovered (sim restarted), it won't
+			// be sent again. Controller reboot would be required to accept the new value.
+		 	if (debug)
+		       printf(" -> model = %s\n", model);
+
+		    response[3] = model[3];
+			response[4] = model[2];
+			response[5] = model[1];
+			response[6] = model[0];
+
+			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
+			break;
+		 // All unknown_cmd's below are queried by BRP069B41 for protocol version 2.
+		 // They are all mandatory; if we respond NAK, the controller keeps retrying
+		 // this command and doesn't proceed.
+		 // All response values are taken from FTXF20D
+		 case 'B':
+			unknown_cmd(p, response, buf, 0x30, 0x33, 0x36, 0x30); // 0630
+			break;
+		 case 'G':
+			unknown_cmd(p, response, buf, 0x30, 0x34, 0x30, 0x30); // 0040
+			break;
+		 case 'K':
+			unknown_cmd(p, response, buf, 0x71, 0x73, 0x35, 0x31); //15sq
+			break;
+		 case 'M':
+			unknown_cmd(p, response, buf, 0x33, 0x42, 0x30, 0x30); //00B3
+			break;
+		 case 'N':
+			unknown_cmd(p, response, buf, 0x30, 0x30, 0x30, 0x30); //0000
+			break;
+		 case 'P':
+			unknown_cmd(p, response, buf, 0x37, 0x33, 0x30, 0x30); // 0037
+			break;
+		 case 'Q':
+			unknown_cmd(p, response, buf, 0x45, 0x33, 0x30, 0x30); //003E
+			break;
+		 case 'R':
+			unknown_cmd(p, response, buf, 0x30, 0x30, 0x30, 0x30); // 0000
+			break;
+		 case 'S':
+			unknown_cmd(p, response, buf, 0x30, 0x30, 0x30, 0x30); // 0000
+			break;
+		 case 'T':
+			unknown_cmd(p, response, buf, 0x31, 0x30, 0x30, 0x30); // 0001
+			break;
+		 case 'V':
+		 	// This one is not sent by BRP069B41, but i quickly got tired of adding these
+			// one by one and simply ran all the alphabet up to FZZ on my FTXF20D, so here it is.
+			unknown_cmd(p, response, buf, 0x33, 0x37, 0x83, 0x30);
+			break;
 		 default:
 		    // Respond NAK to an unknown command. My FTXF20D does the same.
 		    s21_nak(p, buf);
