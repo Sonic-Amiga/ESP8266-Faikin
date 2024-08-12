@@ -417,7 +417,7 @@ main(int argc, const char *argv[])
 
 		s21_nonstd_reply(p, response, 5);
 	  } else if (buf[S21_CMD0_OFFSET] == 'R') {
-		 // Query temperature sensors
+		 // Query sensors
 		 switch (buf[S21_CMD1_OFFSET]) {
 	     case 'H':
 		    send_temp(p, response, buf, home, "home");
@@ -431,19 +431,24 @@ main(int argc, const char *argv[])
 	     case 'L':
 		 	send_int(p, response, buf, 52, "fanrpm");
 		    break;
+		 case 'd':
+		 	send_int(p, response, buf, 42, "compressor rpm");
+			break;
 	     case 'N':
-		 	// These two are queried by BRP069B41, at least for protocol version 1, but
-			// we have no idea what they mean. Not found anywhere in http responses.
-			// We're setting some distinct values for possible identification in case
-			// if they pop up somewhere. Format is known from FTXF20D.
+		 	// These two are queried by BRP069B41, at least for protocol version 1, but we have no idea
+			// what they mean. Not found anywhere in controller's http responses. We're replying with
+			// some distinct values for possible identification in case if they pop up somewhere.
+			// The following is what my FTX20D returns, also with known commands from above, for comparison:
+			// {"protocol":"S21","dump":"0253483035322B5D03","SH":"052+"} - home
+			// {"protocol":"S21","dump":"0253493535322B6303","SI":"552+"} - inlet
+			// {"protocol":"S21","dump":"0253613035312B7503","Sa":"051+"} - outside
+			// {"protocol":"S21","dump":"02534E3532312B6403","SN":"521+"} - ???
+			// {"protocol":"S21","dump":"0253583033322B6B03","SX":"032+"} - ???
 		    send_temp(p, response, buf, 235, "unknown ('RN')");
 		    break;
 	     case 'X':
 		    send_temp(p, response, buf, 215, "unknown ('RX')");
 		    break;
-		 case 'd':
-		 	send_int(p, response, buf, 42, "Unknown ('Rd')");
-			break;
 		 default:
 		    s21_nak(p, buf);
 		    continue;
