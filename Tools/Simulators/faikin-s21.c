@@ -20,22 +20,25 @@
 #include <termios.h>
 #endif
 
-int   debug = 0,
-	  ump = 0;
-int   dump = 0;
-int   power = 0;
-int   mode = 3;
-int   comp = 1;
-float temp = 22.5;
-int   fan = 3;
-int   swing = 0;
-int   powerful = 0;
-int   eco = 0;
-int   home = 245; // Multiplied by 10
-int   outside = 205;
-int   inlet = 185;
-int   protocol = 2; // Protocol version
-const char *model = "135D"; // Reported A/C model code
+int debug = 0; // Dump commands and responses (short form)
+int dump  = 0; // Raw dump
+
+// Simulated A/C state. Defaults are chosen to be distinct; can be changed via
+// command line.
+int   power       = 0;    // Power on
+int   mode        = 3;    // Mode
+float temp        = 22.5; // Set point
+int   fan         = 3;    // Fan speed
+int   swing       = 0;    // Swing direction
+int   powerful    = 0;    // Powerful mode
+int   eco         = 0;    // Eco mode
+int   home        = 245;  // Reported temparatures (multiplied by 10 here)
+int   outside     = 205;
+int   inlet       = 185;
+int   fanrpm      = 52;   // Fan RPM (divided by 10 here)
+int   comprpm     = 42;   // Compressor RPM
+int   protocol    = 2; // Protocol version
+const char *model = "135D"; // Reported A/C model code. Default taken from FTXF20D5V1B
 
 static void hexdump_raw(const unsigned char *buf, unsigned int len)
 {
@@ -171,7 +174,8 @@ main(int argc, const char *argv[])
 	  {"mode", 0, POPT_ARG_INT, &mode, 0, "Mode", "0=F,1=H,2=C,3=A,7=D"},
 	  {"fan", 0, POPT_ARG_INT, &fan, 0, "Fan", "0 = auto, 1-5 = set speed, 6 = quiet"},
 	  {"temp", 0, POPT_ARG_FLOAT, &temp, 0, "Temp", "C"},
-	  {"comp", 0, POPT_ARG_INT, &comp, 0, "Comp", "1=H,2=C"},
+	  {"comprpm", 0, POPT_ARG_INT, &fanrpm, 0, "Fan rpm (divided by 10)"},
+	  {"comprpm", 0, POPT_ARG_INT, &comprpm, 0, "Compressor rpm"},
 	  {"powerful", 0, POPT_ARG_NONE, &powerful, 0, "Debug"},
 	  {"dump", 'V', POPT_ARG_NONE, &dump, 0, "Dump"},
 	  {"protocol", 0, POPT_ARG_INT, &protocol, 0, "Reported protocol version"},
@@ -504,10 +508,10 @@ main(int argc, const char *argv[])
 		    send_temp(p, response, buf, outside, "outside");
 		    break;
 	     case 'L':
-		 	send_int(p, response, buf, 52, "fanrpm");
+		 	send_int(p, response, buf, fanrpm, "fanrpm");
 		    break;
 		 case 'd':
-		 	send_int(p, response, buf, 42, "compressor rpm");
+		 	send_int(p, response, buf, comprpm, "compressor rpm");
 			break;
 	     case 'N':
 		 	// These two are queried by BRP069B41, at least for protocol version 1, but we have no idea
