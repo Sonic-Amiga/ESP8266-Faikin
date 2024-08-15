@@ -35,7 +35,8 @@ static struct S21State init_state = {
    .fanrpm   = 52,   // Fan RPM (divided by 10 here)
    .comprpm  = 42,   // Compressor RPM
    .protocol = 2,    // Protocol version
-   .model    = {'1', '3', '5', 'D'}, // Reported A/C model code. Default taken from FTXF20D5V1B
+   .model    = {'1', '3', '5', 'D'},     // Reported A/C model code. Default taken from FTXF20D5V1B
+   .FK       = {0x71, 0x73, 0x35, 0x31}, // '15sq', taken from FTXF20D
 };
 
 static void hexdump_raw(const unsigned char *buf, unsigned int len)
@@ -124,6 +125,11 @@ static void unknown_cmd(int p, unsigned char *response, const unsigned char *cmd
    response[6] = r3;
 
    s21_reply(p, response, cmd, S21_PAYLOAD_LEN);
+}
+
+static void unknown_cmd_a(int p, unsigned char *response, const unsigned char *cmd, const unsigned char *r)
+{
+   unknown_cmd(p, response, cmd, r[0], r[1], r[2], r[3]);
 }
 
 static void send_temp(int p, unsigned char *response, const unsigned char *cmd, int value, const char *name)
@@ -432,7 +438,7 @@ main(int argc, const char *argv[])
 			unknown_cmd(p, response, buf, 0x30, 0x34, 0x30, 0x30); // 0040
 			break;
 		 case 'K':
-			unknown_cmd(p, response, buf, 0x71, 0x73, 0x35, 0x31); //15sq
+			unknown_cmd_a(p, response, buf, state->FK); //
 			break;
 		 case 'M':
 			unknown_cmd(p, response, buf, 0x33, 0x42, 0x30, 0x30); //00B3

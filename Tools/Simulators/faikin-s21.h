@@ -14,6 +14,8 @@ struct S21State
     int   comprpm;  // Compressor RPM
     int   protocol; // Protocol version
     char  model[4]; // Reported A/C model code
+    // The following aren't understood yet
+    unsigned char FK[4];
 };
 
 #define SHARED_MEM_NAME "Faikin-S21"
