@@ -366,30 +366,30 @@ main(int argc, const char *argv[])
 		 case '5':
 		    if (debug)
 		       printf(" -> swing %d\n", state->swing);
-		    response[3] = state->swing;
-			response[4] = 0;
-			response[5] = 0;
-			response[6] = 0;
+		    response[3] = '0' + state->swing;
+			response[4] = 0x3F;
+			response[5] = 0x30;
+			response[6] = 0x80;
 
 			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
 			break;
 		 case '6':
 		    if (debug)
 		       printf(" -> powerful ('F6') %d\n", state->powerful);
-		    response[3] = state->powerful ? 2 : 0;
-			response[4] = 0;
-			response[5] = 0;
-			response[6] = 0;
+		    response[3] = state->powerful ? '2' : '0';
+			response[4] = 0x30;
+			response[5] = 0x30;
+			response[6] = 0x30;
 
 			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
 			break;
 		 case '7':
 		    if (debug)
 		       printf(" -> eco %d\n", state->eco);
-		    response[3] = 0;
+		    response[3] = 0x30;
 			response[4] = state->eco ? '2' : '0';
-			response[5] = 0;
-			response[6] = 0;
+			response[5] = 0x30;
+			response[6] = 0x30;
 
 			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
 			break;
@@ -406,6 +406,7 @@ main(int argc, const char *argv[])
 		    response[3] = '0';
 			response[4] = '0' + state->protocol;
 			response[5] = '0';
+			response[6] = '0';
 
 			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
 			break;
