@@ -450,12 +450,12 @@ main(int argc, const char *argv[])
 		 case 'K':
 		    // Optional features. Displayed in /aircon/get_model_info:
 			// byte 0:
-			// - bit 2: acled 0 or 1. LED control presence ?
-			// - bit 3: land 0 or 1.
+			// - bit 2: acled=<bool>. LED control presence ?
+			// - bit 3: land=<bool>
 			// byte 1:
-			// - bit 0: elec 0 or 1
-			// - bit 2: temp_rng 0 or 1
-			// - bit 3: m_dtct 0 or 1
+			// - bit 0: elec=<bool>
+			// - bit 2: temp_rng=<bool>
+			// - bit 3: m_dtct 0=<bool>
 			// byte 2:
 			// - bit 0: Not understood
 			//   0 -> ac_dst=jp
@@ -464,10 +464,11 @@ main(int argc, const char *argv[])
 			//   0 -> s_humd=0
 			//   1 -> s_humd=16
 			// - bit 2: Enable fan controls ???
-			//  0 -> en_frate=0 en_fdir=0 s_fdir=0
-			//  1 -> en_frate=1 en_fdir=1 s_fdir=3
-			//  When set to 0, the "Online controller" app always shows "fan off",
-			//  and attempts to control it do nothing.
+			//    0 -> en_frate=0 en_fdir=0 s_fdir=0
+			//    1 -> en_frate=1 en_fdir=1 s_fdir=3
+			//    When set to 0, the "Online controller" app always shows "fan off",
+			//    and attempts to control it do nothing.
+			// - bit 3: disp_dry=<bool>
 			// byte 3 - doesn't change anything
 			// FTXF20D values: 0x71, 0x73, 0x35, 0x31
 			unknown_cmd_a(p, response, buf, state->FK);
