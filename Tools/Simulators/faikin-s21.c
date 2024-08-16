@@ -429,7 +429,7 @@ main(int argc, const char *argv[])
 			// Even if communication is broken, then recovered (sim restarted), it won't
 			// be sent again. Controller reboot would be required to accept the new value.
 		 	if (debug)
-		       printf(" -> model = %4s\n", state->model);
+		       printf(" -> model = %.4s\n", state->model);
 
 		    response[3] = state->model[3];
 			response[4] = state->model[2];
