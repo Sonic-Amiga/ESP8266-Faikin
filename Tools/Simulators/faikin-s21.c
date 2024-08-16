@@ -36,7 +36,17 @@ static struct S21State init_state = {
    .comprpm  = 42,   // Compressor RPM
    .protocol = 2,    // Protocol version
    .model    = {'1', '3', '5', 'D'},     // Reported A/C model code. Default taken from FTXF20D5V1B
-   .FK       = {0x71, 0x73, 0x35, 0x31}, // '15sq', taken from FTXF20D
+   // Taken from FTXF20D
+   .FB       = {0x30, 0x33, 0x36, 0x30}, // 0630
+   .FG       = {0x30, 0x34, 0x30, 0x30}, // 0040
+   .FK       = {0x71, 0x73, 0x35, 0x31}, // 15sq
+   .FM       = {0x33, 0x42, 0x30, 0x30}, // 00B3
+   .FN       = {0x30, 0x30, 0x30, 0x30}, // 0000
+   .FP       = {0x37, 0x33, 0x30, 0x30}, // 0037
+   .FQ       = {0x45, 0x33, 0x30, 0x30}, // 003E
+   .FR       = {0x30, 0x30, 0x30, 0x30}, // 0000
+   .FS       = {0x30, 0x30, 0x30, 0x30}, // 0000
+   .FT       = {0x31, 0x30, 0x30, 0x30}  // 0001
 };
 
 static void hexdump_raw(const unsigned char *buf, unsigned int len)
@@ -432,34 +442,56 @@ main(int argc, const char *argv[])
 		 // this command and doesn't proceed.
 		 // All response values are taken from FTXF20D
 		 case 'B':
-			unknown_cmd(p, response, buf, 0x30, 0x33, 0x36, 0x30); // 0630
+			unknown_cmd_a(p, response, buf, state->FB);
 			break;
 		 case 'G':
-			unknown_cmd(p, response, buf, 0x30, 0x34, 0x30, 0x30); // 0040
+			unknown_cmd_a(p, response, buf, state->FG);
 			break;
 		 case 'K':
-			unknown_cmd_a(p, response, buf, state->FK); //
+		    // Optional features. Displayed in /aircon/get_model_info:
+			// byte 0:
+			// - bit 2: acled 0 or 1. LED control presence ?
+			// - bit 3: land 0 or 1.
+			// byte 1:
+			// - bit 0: elec 0 or 1
+			// - bit 2: temp_rng 0 or 1
+			// - bit 3: m_dtct 0 or 1
+			// byte 2:
+			// - bit 0: Not understood
+			//   0 -> ac_dst=jp
+			//   1 -> ac_dst=--
+			// - bit 1: Not understood. Something with humidity ?
+			//   0 -> s_humd=0
+			//   1 -> s_humd=16
+			// - bit 2: Enable fan controls ???
+			//  0 -> en_frate=0 en_fdir=0 s_fdir=0
+			//  1 -> en_frate=1 en_fdir=1 s_fdir=3
+			//  When set to 0, the "Online controller" app always shows "fan off",
+			//  and attempts to control it do nothing.
+			// byte 3 - doesn't change anything
+			// FTXF20D values: 0x71, 0x73, 0x35, 0x31
+			unknown_cmd_a(p, response, buf, state->FK);
 			break;
 		 case 'M':
-			unknown_cmd(p, response, buf, 0x33, 0x42, 0x30, 0x30); //00B3
+			unknown_cmd_a(p, response, buf, state->FM);
 			break;
 		 case 'N':
-			unknown_cmd(p, response, buf, 0x30, 0x30, 0x30, 0x30); //0000
+			unknown_cmd_a(p, response, buf, state->FN);
 			break;
 		 case 'P':
-			unknown_cmd(p, response, buf, 0x37, 0x33, 0x30, 0x30); // 0037
+			unknown_cmd_a(p, response, buf, state->FP);
 			break;
 		 case 'Q':
-			unknown_cmd(p, response, buf, 0x45, 0x33, 0x30, 0x30); //003E
+			unknown_cmd_a(p, response, buf, state->FQ);
 			break;
 		 case 'R':
-			unknown_cmd(p, response, buf, 0x30, 0x30, 0x30, 0x30); // 0000
+			unknown_cmd_a(p, response, buf, state->FR);
 			break;
 		 case 'S':
-			unknown_cmd(p, response, buf, 0x30, 0x30, 0x30, 0x30); // 0000
+			unknown_cmd_a(p, response, buf, state->FS);
 			break;
 		 case 'T':
-			unknown_cmd(p, response, buf, 0x31, 0x30, 0x30, 0x30); // 0001
+			unknown_cmd_a(p, response, buf, state->FT);
 			break;
 		 case 'V':
 		 	// This one is not sent by BRP069B41, but i quickly got tired of adding these
