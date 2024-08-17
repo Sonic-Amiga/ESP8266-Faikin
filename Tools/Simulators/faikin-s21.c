@@ -34,13 +34,13 @@ static struct S21State init_state = {
    .inlet    = 185,
    .fanrpm   = 52,   // Fan RPM (divided by 10 here)
    .comprpm  = 42,   // Compressor RPM
+   .power    = 2,	 // Power consumption in 100 Wh units
    .protocol = 2,    // Protocol version
    .model    = {'1', '3', '5', 'D'},     // Reported A/C model code. Default taken from FTXF20D5V1B
    // Taken from FTXF20D
    .FB       = {0x30, 0x33, 0x36, 0x30}, // 0630
    .FG       = {0x30, 0x34, 0x30, 0x30}, // 0040
    .FK       = {0x71, 0x73, 0x35, 0x31}, // 15sq
-   .FM       = {0x33, 0x42, 0x30, 0x30}, // 00B3
    .FN       = {0x30, 0x30, 0x30, 0x30}, // 0000
    .FP       = {0x37, 0x33, 0x30, 0x30}, // 0037
    .FQ       = {0x45, 0x33, 0x30, 0x30}, // 003E
@@ -160,11 +160,11 @@ static void send_temp(int p, unsigned char *response, const unsigned char *cmd, 
 	s21_reply(p, response, cmd, S21_PAYLOAD_LEN);
 }
 
-static void send_int(int p, unsigned char *response, const unsigned char *cmd, int value, const char *name)
+static void send_int(int p, unsigned char *response, const unsigned char *cmd, unsigned int value, const char *name)
 {
 	char buf[4];
 
-	snprintf(buf, sizeof(buf), "%03d", value);
+	snprintf(buf, sizeof(buf), "%03u", value);
 	if (debug)
 	   	printf(" -> %s = %s\n", name, buf);
 
@@ -174,6 +174,23 @@ static void send_int(int p, unsigned char *response, const unsigned char *cmd, i
 	response[S21_PAYLOAD_OFFSET + 2] = buf[0];
 			
 	s21_reply(p, response, buf, 3); // Nontypical response, 3 bytes, not 4!
+}
+
+static void send_hex(int p, unsigned char *response, const unsigned char *cmd, unsigned int value, const char *name)
+{
+	char buf[5];
+
+	snprintf(buf, sizeof(buf), "%04X", value);
+	if (debug)
+	   	printf(" -> %s = %s\n", name, buf);
+
+	// Order inverted, the same as in send_temp()
+    response[S21_PAYLOAD_OFFSET + 0] = buf[3];
+	response[S21_PAYLOAD_OFFSET + 1] = buf[2];
+	response[S21_PAYLOAD_OFFSET + 2] = buf[1];
+	response[S21_PAYLOAD_OFFSET + 2] = buf[0];
+			
+	s21_reply(p, response, buf, S21_PAYLOAD_LEN);
 }
 
 int
@@ -194,6 +211,7 @@ main(int argc, const char *argv[])
 	  {"comprpm", 0, POPT_ARG_INT, &init_state.comprpm, 0, "Compressor rpm"},
 	  {"powerful", 0, POPT_ARG_NONE, &init_state.powerful, 0, "Debug"},
 	  {"protocol", 0, POPT_ARG_INT, &init_state.protocol, 0, "Reported protocol version"},
+	  {"consumption", 0, POPT_ARG_INT, &init_state.consumption, 0, "Reported power consumption"},
 	  {"model", 0, POPT_ARG_STRING, &model, 0, "Reported model code"},
 	  POPT_AUTOHELP {}
    };
@@ -438,6 +456,10 @@ main(int argc, const char *argv[])
 
 			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
 			break;
+		 case 'M':
+		 	// Protocol v2 - power consumption in 100 Wh units
+		 	send_hex(p, response, buf, state->power, "Power comsumption");
+			break;
 		 // All unknown_cmd's below are queried by BRP069B41 for protocol version 2.
 		 // They are all mandatory; if we respond NAK, the controller keeps retrying
 		 // this command and doesn't proceed.
@@ -473,9 +495,6 @@ main(int argc, const char *argv[])
 			// byte 3 - doesn't change anything
 			// FTXF20D values: 0x71, 0x73, 0x35, 0x31
 			unknown_cmd_a(p, response, buf, state->FK);
-			break;
-		 case 'M':
-			unknown_cmd_a(p, response, buf, state->FM);
 			break;
 		 case 'N':
 			unknown_cmd_a(p, response, buf, state->FN);
