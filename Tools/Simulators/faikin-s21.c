@@ -38,6 +38,7 @@ static struct S21State init_state = {
    .protocol = 2,    // Protocol version
    .model    = {'1', '3', '5', 'D'},     // Reported A/C model code. Default taken from FTXF20D5V1B
    // Taken from FTXF20D
+   .F3       = {0x30, 0xFE, 0xFE, 0x00},
    .FB       = {0x30, 0x33, 0x36, 0x30}, // 0630
    .FG       = {0x30, 0x34, 0x30, 0x30}, // 0040
    .FK       = {0x71, 0x73, 0x35, 0x31}, // 15sq
@@ -367,14 +368,11 @@ main(int argc, const char *argv[])
 			unknown_cmd(p, response, buf, 0x3D, 0x3B, 0x00, 0x80);
 			break;
 		 case '3':
-		    if (debug)
-		       printf(" -> powerful ('F3') %d\n", state->powerful);
-			response[3] = 0x30; // No idea what this is, taken from my FTXF20D
-			response[4] = 0xFE;
-			response[5] = 0xFE;
-			response[6] = state->powerful ? 2 : 0;
-
-		    s21_reply(p, response, buf, S21_PAYLOAD_LEN);
+		 	// Faikin treats byte[3] of payload as "powerful" flag, alternative to F6,
+			// but that's not true, at least on ATX20K2V1B.
+			// Attempt to report 0x02 as last byte causes BRP069B41 to respond NAK to
+			// our data. It's clearly not valid.
+		 	unknown_cmd_a(p, response, buf, state->F3);
 			break;
 		 case '4':
 		    // Also taken from CTXM60RVMA, CTXM35RVMA, and also error 252 if wrong
