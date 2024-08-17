@@ -173,7 +173,7 @@ static void send_int(int p, unsigned char *response, const unsigned char *cmd, u
 	response[S21_PAYLOAD_OFFSET + 1] = buf[1];
 	response[S21_PAYLOAD_OFFSET + 2] = buf[0];
 			
-	s21_reply(p, response, buf, 3); // Nontypical response, 3 bytes, not 4!
+	s21_reply(p, response, cmd, 3); // Nontypical response, 3 bytes, not 4!
 }
 
 static void send_hex(int p, unsigned char *response, const unsigned char *cmd, unsigned int value, const char *name)
@@ -190,7 +190,7 @@ static void send_hex(int p, unsigned char *response, const unsigned char *cmd, u
 	response[S21_PAYLOAD_OFFSET + 2] = buf[1];
 	response[S21_PAYLOAD_OFFSET + 2] = buf[0];
 			
-	s21_reply(p, response, buf, S21_PAYLOAD_LEN);
+	s21_reply(p, response, cmd, S21_PAYLOAD_LEN);
 }
 
 int
