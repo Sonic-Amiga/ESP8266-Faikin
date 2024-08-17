@@ -466,6 +466,10 @@ main(int argc, const char *argv[])
 			unknown_cmd_a(p, response, buf, state->FB);
 			break;
 		 case 'G':
+		 	// byte[1] of the payload is a hexadecimal character from '0' to 'F'.
+			// Found to increment every time any key is pushed on RC. After 'F' rolls
+			// over to '1'
+			// Other bytes are always 30 xx 30 30
 			unknown_cmd_a(p, response, buf, state->FG);
 			break;
 		 case 'K':
