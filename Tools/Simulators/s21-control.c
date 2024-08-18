@@ -59,7 +59,9 @@ int main(int argc, const char **argv)
 #define PARSE_RAW(cmd)               \
     else if (!strcmp(argv[1], #cmd)) \
         parse_raw(argc - 2, &argv[2], state->cmd, sizeof(state->cmd));
+    PARSE_RAW(F2)
     PARSE_RAW(F3)
+    PARSE_RAW(F4)
     PARSE_RAW(FB)
     PARSE_RAW(FG)
     PARSE_RAW(FK)

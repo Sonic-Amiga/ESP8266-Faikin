@@ -37,8 +37,13 @@ static struct S21State init_state = {
    .power    = 2,	 // Power consumption in 100 Wh units
    .protocol = 2,    // Protocol version
    .model    = {'1', '3', '5', 'D'},     // Reported A/C model code. Default taken from FTXF20D5V1B
-   // Taken from FTXF20D
+   // Values are taken from FTXF20D, except F2 and F4.
+   // These two are kindly provided by a user in reverse engineering thread:
+   // https://github.com/revk/ESP32-Faikin/issues/408#issuecomment-2278296452
+   // Correspond to A/C models CTXM60RVMA, CTXM35RVMA
+   .F2       = {0x3D, 0x3B, 0x00, 0x80},
    .F3       = {0x30, 0xFE, 0xFE, 0x00},
+   .F4       = {0x30, 0x00, 0x80, 0x30},
    .FB       = {0x30, 0x33, 0x36, 0x30}, // 0630
    .FG       = {0x30, 0x34, 0x30, 0x30}, // 0040
    .FK       = {0x71, 0x73, 0x35, 0x31}, // 15sq
@@ -359,13 +364,10 @@ main(int argc, const char *argv[])
 		 case '2':
 		    // BRP069B41 sends this as first command. If NAK is received, it keeps retrying
 			// and doesn't send anything else. Suggestion - query AC features
-			// The response values here are kindly provided by a user in reverse engineering
-			// thread: https://github.com/revk/ESP32-Faikin/issues/408#issuecomment-2278296452
-			// Correspond to A/C models CTXM60RVMA, CTXM35RVMA
 			// It was experimentally found that with different values, given by FTXF20D, the
 			// controller falls into error 252 and refuses to accept A/C commands over HTTP.
 			// FTXF20D: 34 3A 00 80
-			unknown_cmd(p, response, buf, 0x3D, 0x3B, 0x00, 0x80);
+			unknown_cmd_a(p, response, buf, state->F2);
 			break;
 		 case '3':
 		 	// Faikin treats byte[3] of payload as "powerful" flag, alternative to F6,
@@ -377,7 +379,7 @@ main(int argc, const char *argv[])
 		 case '4':
 		    // Also taken from CTXM60RVMA, CTXM35RVMA, and also error 252 if wrong
 			// FTXF20D: 30 00 A0 30
-			unknown_cmd(p, response, buf, 0x30, 0x00, 0x80, 0x30);
+			unknown_cmd_a(p, response, buf, state->F4);
 			break;
 		 case '5':
 		    if (debug)
