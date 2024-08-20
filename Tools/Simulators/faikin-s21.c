@@ -362,12 +362,6 @@ main(int argc, const char *argv[])
 			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
 			break;
 		 case '2':
-			// It was experimentally found that with different values, given by FTXF20D, the
-			// controller falls into error 252 and refuses to accept A/C commands over HTTP.
-			// Some known responses:
-			// CTXM60RVMA, CTXM35RVMA: 3D 3B 00 80
-			// FTXF20D, ATX20K2V1B   : 34 3A 00 80
-			// 
 		    // Optional features. Displayed in /aircon/get_model_info:
 			// byte 0:
 			// - bit 0 - set to 1 on CTXM60RVMA, CTXM35RVMA. BRP069B41 apparently ignores it.
@@ -385,13 +379,14 @@ main(int argc, const char *argv[])
 			//   1 => s_humd=183 when bit 1 == 1, or s_humd=146 when bit 1 == 0
             //   s_humd is forced to 16 regardless of bits 1 and 4 when byte 2 bit 1
 			//   in FK command (see below) is set to 1
+			// Some known responses:
+			// CTXM60RVMA, CTXM35RVMA : 3D 3B 00 80
+			// FTXF20D5V1B, ATX20K2V1B: 34 3A 00 80
 			unknown_cmd_a(p, response, buf, state->F2);
 			break;
 		 case '3':
 		 	// Faikin treats byte[3] of payload as "powerful" flag, alternative to F6,
-			// but that's not true, at least on ATX20K2V1B.
-			// Attempt to report 0x02 as last byte causes BRP069B41 to respond NAK to
-			// our data. It's clearly not valid.
+			// but that's not true, at least on ATX20K2V1B and FTXF20D5.
 		 	unknown_cmd_a(p, response, buf, state->F3);
 			break;
 		 case '4':
