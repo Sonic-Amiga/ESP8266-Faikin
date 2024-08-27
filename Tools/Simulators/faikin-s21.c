@@ -113,7 +113,7 @@ static void load_settings(const char *filename)
 	char line[1024];
 	FILE *f = fopen(filename, "r");
 
-	if (f) {
+	if (!f) {
 		perror("Failed to open settings file");
 		exit(255);
 	}
