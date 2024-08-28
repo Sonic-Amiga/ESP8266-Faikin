@@ -93,7 +93,7 @@ static int parse_raw(int argc, const char **argv, unsigned char *v, unsigned int
         } else {
             char *endp = NULL;
 
-            *v = strtoul(val, &endp, 0);
+            v[i] = strtoul(val, &endp, 0);
             if (endp && *endp) {
                 fprintf(stderr, "%s: Invalid integer value: %s\n", opt, val);
                 return -1;
