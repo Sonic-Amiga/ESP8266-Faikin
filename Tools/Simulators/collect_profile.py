@@ -41,6 +41,7 @@ def parse_response(hex_str):
 
     if cmd == "FC":
         print("model", data[6:2:-1].decode("ascii"))
+        return True
     if cmd == "F8":
         cmd = "protocol"
     print("%s 0x%02X 0x%02X 0x%02X 0x%02X" % (cmd, data[3], data[4], data[5], data[6]))
