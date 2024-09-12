@@ -2204,7 +2204,14 @@ legacy_web_get_model_info (httpd_req_t * req)
    jo_int (j, "en_fdir",  en_fdir);
    jo_int (j, "s_fdir", s_fdir);
    jo_int (j, "en_spmode", en_spmode);
+   jo_int (j, "dmnd", (daikin.status_known & CONTROL_demand) ? 1 : 0);
    return legacy_send (req, &j);
+}
+
+static void
+jo_en_demand (jo_t j)
+{
+   jo_int (j, "en_demand", (daikin.status_known & CONTROL_demand) && daikin.demand < 100 ? 1 : 0);
 }
 
 static esp_err_t
@@ -2258,7 +2265,7 @@ legacy_web_get_control_info (httpd_req_t * req)
    }
    jo_int (j, "dfdh", 0);
    jo_int (j, "dmnd_run", 0);
-   jo_int (j, "en_demand", (daikin.status_known & CONTROL_demand) && daikin.demand < 100 ? 1 : 0);
+   jo_en_demand (j);
    return legacy_send (req, &j);
 }
 
@@ -2387,6 +2394,17 @@ legacy_web_get_week_power (httpd_req_t * req)
    // For now let's just prevent errors in OpenHAB and return an empty OK response
    // Note all zeroes from my BRP
    jo_t j = legacy_ok ();
+   return legacy_send (req, &j);
+}
+
+static esp_err_t
+legacy_web_get_demand_control (httpd_req_t * req)
+{
+   jo_t j = legacy_ok ();
+   jo_int (j, "type", 1);
+   jo_en_demand (j);
+   jo_int (j, "mode", 0); // Only manual
+   jo_int (j, "max_power", daikin.demand);   
    return legacy_send (req, &j);
 }
 
@@ -3066,7 +3084,7 @@ app_main ()
       config.stack_size += 2048;        // Being on the safe side
       // When updating the code below, make sure this is enough
       // Note that we're also adding revk's own web config handlers
-      config.max_uri_handlers = 15 + revk_num_web_handlers ();
+      config.max_uri_handlers = 16 + revk_num_web_handlers ();
       if (!httpd_start (&webserver, &config))
       {
          if (websettings)
@@ -3087,6 +3105,7 @@ app_main ()
             register_get_uri ("/aircon/get_year_power_ex", legacy_web_get_year_power);
             register_get_uri ("/aircon/get_week_power_ex", legacy_web_get_week_power);
             register_get_uri ("/aircon/set_special_mode", legacy_web_set_special_mode);
+            register_get_uri ("/aircon/get_demand_control", legacy_web_get_demand_control);
             register_get_uri ("/aircon/set_demand_control", legacy_web_set_demand_control);
             register_get_uri ("/aircon/set_holiday", legacy_web_set_holiday);
          }
@@ -3104,7 +3123,8 @@ app_main ()
       ESP_LOGE (TAG, "Dummy operational mode (no tx/rx set)");
       daikin.status_known |=
          CONTROL_power | CONTROL_fan | CONTROL_temp | CONTROL_mode | CONTROL_econo | CONTROL_powerful |
-         CONTROL_comfort | CONTROL_streamer | CONTROL_sensor | CONTROL_quiet | CONTROL_swingv | CONTROL_swingh;
+         CONTROL_comfort | CONTROL_streamer | CONTROL_sensor | CONTROL_quiet | CONTROL_swingv | CONTROL_swingh |
+         CONTROL_demand;
       daikin.power = 1;
       daikin.mode = 1;
       daikin.temp = 20.0;
