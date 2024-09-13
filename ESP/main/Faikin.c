@@ -2402,10 +2402,24 @@ static esp_err_t
 legacy_web_get_demand_control (httpd_req_t * req)
 {
    jo_t j = legacy_ok ();
-   jo_int (j, "type", 1);
-   jo_en_demand (j);
-   jo_int (j, "mode", 0); // Only manual
-   jo_int (j, "max_power", daikin.demand);   
+
+   if (daikin.status_known & CONTROL_demand)
+   {
+      jo_int (j, "type", 1);
+      jo_en_demand (j);
+      jo_int (j, "mode", 0); // Only manual
+      jo_int (j, "max_power", daikin.demand);
+      jo_int (j, "moc", 0);
+      jo_int (j, "tuc", 0);
+      jo_int (j, "wec", 0);
+      jo_int (j, "thc", 0);
+      jo_int (j, "frc", 0);
+      jo_int (j, "sac", 0);
+      jo_int (j, "suc", 0);
+   } else
+   {
+      jo_int (j, "type", 0);
+   }
    return legacy_send (req, &j);
 }
 
