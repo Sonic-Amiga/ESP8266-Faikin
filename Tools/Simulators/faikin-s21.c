@@ -50,7 +50,16 @@ static struct S21State init_state = {
    .FR       = {0x30, 0x30, 0x30, 0x30}, // 0000
    .FS       = {0x30, 0x30, 0x30, 0x30}, // 0000
    .FT       = {0x31, 0x30, 0x30, 0x30}, // 0001
-   .M        = {'F', 'F', 'F', 'F'}
+   .FV       = {0x33, 0x37, 0x83, 0x30},
+   .M        = {'F', 'F', 'F', 'F'},
+   .FU00     = {0xA0, 0xA0, 0x30 ,0x31, 0x30, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+   .FU02     = {0x36, 0x43, 0x37, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, // 00000000000007C6
+                0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+   .FY00     = {'0', '2', '3', '0'},
+   .FY10     = {'A', '8', 'D', '3', '6', '6', '6', 'F'},
+   .FY20     = {'E', '4', '0', '2'},
+   .VS       = {'1', '8', '1', '5', '1', '0', '7', '1', 'M', '0', '0', '0', '0', '0'}
 };
 
 static void usage(const char *progname)
@@ -225,22 +234,40 @@ static void s21_reply(int p, unsigned char *response, const unsigned char *cmd, 
 
 // A wrapper for unknown command. Useful because we're adding them in bulk
 static void unknown_cmd(int p, unsigned char *response, const unsigned char *cmd,
-                        unsigned char r0, unsigned char r1, unsigned char r2, unsigned char r3)
+                        const unsigned char *r, unsigned int payload_len)
 {
-   if (debug)
-      printf(" -> unknown ('%c%c') = 0x%02X 0x%02X 0x%02X 0x%02X\n",
-	         cmd[S21_CMD0_OFFSET], cmd[S21_CMD1_OFFSET], r0, r1, r2, r3);
-   response[3] = r0;
-   response[4] = r1;
-   response[5] = r2;
-   response[6] = r3;
+   if (debug) {
+      printf(" -> unknown ('%c%c') =", cmd[S21_CMD0_OFFSET], cmd[S21_CMD1_OFFSET]);
+      hexdump_raw(r, payload_len);
+	  putchar('\n');
+   }
 
-   s21_reply(p, response, cmd, S21_PAYLOAD_LEN);
+   memcpy(&response[S21_PAYLOAD_OFFSET], r, payload_len);
+   s21_reply(p, response, cmd, payload_len);
 }
 
-static void unknown_cmd_a(int p, unsigned char *response, const unsigned char *cmd, const unsigned char *r)
+static void s21_v3_reply(int p, unsigned char *response, const unsigned char *cmd, int payload_len)
 {
-   unknown_cmd(p, response, cmd, r[0], r[1], r[2], r[3]);
+   response[S21_CMD0_OFFSET]    = cmd[S21_CMD0_OFFSET] + 1;
+   response[S21_CMD1_OFFSET]    = cmd[S21_CMD1_OFFSET];
+   response[S21_V3_CMD2_OFFSET] = cmd[S21_V3_CMD2_OFFSET];
+   response[S21_V3_CMD3_OFFSET] = cmd[S21_V3_CMD3_OFFSET];
+
+   s21_nonstd_reply(p, response, 4 + payload_len); // Body is two cmd bytes plus payload
+}
+
+static void unknown_v3_cmd(int p, unsigned char *response, const unsigned char *cmd,
+                           const unsigned char *data, unsigned int payload_len)
+{
+   if (debug) {
+      printf(" -> unknown ('%c%c%c%c') = ",
+	         cmd[S21_CMD0_OFFSET], cmd[S21_CMD1_OFFSET], cmd[S21_V3_CMD2_OFFSET], cmd[S21_V3_CMD3_OFFSET]);
+	  hexdump_raw(data, payload_len);
+	  putchar('\n');
+   }
+
+   memcpy(&response[S21_V3_PAYLOAD_OFFSET], data, payload_len);
+   s21_v3_reply(p, response, cmd, payload_len);
 }
 
 static void send_temp(int p, unsigned char *response, const unsigned char *cmd, int value, const char *name)
@@ -389,8 +416,10 @@ main(int argc, const char *argv[])
 		 continue;
 	  }
 
-      if (debug)
+      if (debug) {
          printf("Got command: %c%c\n", buf[1], buf[2]);
+		 hexdump_raw(&buf[S21_PAYLOAD_OFFSET], len - S21_FRAMING_LEN - 2);
+	  }
 
 	  if (buf[1] == 'D') {
 		 // Set value. No response expected, just ACK.
@@ -469,19 +498,19 @@ main(int argc, const char *argv[])
 			// Some known responses:
 			// CTXM60RVMA, CTXM35RVMA : 3D 3B 00 80
 			// FTXF20D5V1B, ATX20K2V1B: 34 3A 00 80
-			unknown_cmd_a(p, response, buf, state->F2);
+			unknown_cmd(p, response, buf, state->F2, S21_PAYLOAD_LEN);
 			break;
 		 case '3':
 		 	// Faikin treats byte[3] of payload as "powerful" flag, alternative to F6,
 			// but that's not true, at least on ATX20K2V1B and FTXF20D5.
-		 	unknown_cmd_a(p, response, buf, state->F3);
+		 	unknown_cmd(p, response, buf, state->F3, S21_PAYLOAD_LEN);
 			break;
 		 case '4':
 		 	// byte[2] - A/C sometimes reports 0xA0, which then self-resets to 0x80
 			// - bit 5: if set to 1, BRP069B41 stops controlling the A/C and sets
 			//          error code 252. Some sort of "not ready" flag
 			// - bit 7: BRP069B41 seems to ignore it.
-			unknown_cmd_a(p, response, buf, state->F4);
+			unknown_cmd(p, response, buf, state->F4, S21_PAYLOAD_LEN);
 			break;
 		 case '5':
 		    if (debug)
@@ -568,14 +597,14 @@ main(int argc, const char *argv[])
 		 // this command and doesn't proceed.
 		 // All response values are taken from FTXF20D
 		 case 'B':
-			unknown_cmd_a(p, response, buf, state->FB);
+			unknown_cmd(p, response, buf, state->FB, S21_PAYLOAD_LEN);
 			break;
 		 case 'G':
 		 	// byte[1] of the payload is a hexadecimal character from '0' to 'F'.
 			// Found to increment every time any key is pushed on RC. After 'F' rolls
 			// over to '1'
 			// Other bytes are always 30 xx 30 30
-			unknown_cmd_a(p, response, buf, state->FG);
+			unknown_cmd(p, response, buf, state->FG, S21_PAYLOAD_LEN);
 			break;
 		 case 'K':
 		    // Optional features. Displayed in /aircon/get_model_info:
@@ -603,34 +632,73 @@ main(int argc, const char *argv[])
 			// - bit 3: disp_dry=<bool>
 			// byte 3 - doesn't change anything
 			// FTXF20D values: 0x71, 0x73, 0x35, 0x31
-			unknown_cmd_a(p, response, buf, state->FK);
+			unknown_cmd(p, response, buf, state->FK, S21_PAYLOAD_LEN);
 			break;
 		 case 'N':
-			unknown_cmd_a(p, response, buf, state->FN);
+			unknown_cmd(p, response, buf, state->FN, S21_PAYLOAD_LEN);
 			break;
 		 case 'P':
-			unknown_cmd_a(p, response, buf, state->FP);
+			unknown_cmd(p, response, buf, state->FP, S21_PAYLOAD_LEN);
 			break;
 		 case 'Q':
-			unknown_cmd_a(p, response, buf, state->FQ);
+			unknown_cmd(p, response, buf, state->FQ, S21_PAYLOAD_LEN);
 			break;
 		 case 'R':
-			unknown_cmd_a(p, response, buf, state->FR);
+			unknown_cmd(p, response, buf, state->FR, S21_PAYLOAD_LEN);
 			break;
 		 case 'S':
-			unknown_cmd_a(p, response, buf, state->FS);
+			unknown_cmd(p, response, buf, state->FS, S21_PAYLOAD_LEN);
 			break;
 		 case 'T':
-			unknown_cmd_a(p, response, buf, state->FT);
+			unknown_cmd(p, response, buf, state->FT, S21_PAYLOAD_LEN);
 			break;
 		 case 'V':
 		 	// This one is not sent by BRP069B41, but i quickly got tired of adding these
 			// one by one and simply ran all the alphabet up to FZZ on my FTXF20D, so here it is.
-			unknown_cmd(p, response, buf, 0x33, 0x37, 0x83, 0x30);
+			unknown_cmd(p, response, buf, state->FV, S21_PAYLOAD_LEN);
 			break;
-		 // BRP069B41 also sends 'FY' command, but accepts NAK and stops probing it.
-		 // Therefore the command is optional. Both of my units (FTXF20D, ATX20K2V1B)
-		 // also don't recognize it.
+		 // The following is protocol v3 commands
+		 case 'U':
+		    if (len != S21_MIN_V3_PKT_LEN || buf[S21_V3_CMD2_OFFSET] != '0' ) {
+				s21_nak(p, buf, len);
+				continue;
+			}
+			switch (buf[S21_V3_CMD2_OFFSET])
+			{
+			case '0':
+				unknown_v3_cmd(p, response, buf, state->FU00, sizeof(state->FU00));
+				break;
+			case '2':
+				unknown_v3_cmd(p, response, buf, state->FU02, sizeof(state->FU02));
+				break;
+			default:
+				s21_nak(p, buf, len);
+				continue;
+			}
+			break;
+		 case 'Y':
+		 	// v3 protocol commands are 4-byte long.
+			// My FTXF only responds to FY00, FY10, FY20, let's implement this logic
+		    if (len - S21_MIN_V3_PKT_LEN || buf[S21_V3_CMD3_OFFSET] != '0' ) {
+				s21_nak(p, buf, len);
+				continue;
+			}
+			switch (buf[S21_V3_CMD2_OFFSET])
+			{
+			case '0':
+				unknown_v3_cmd(p, response, buf, state->FY00, sizeof(state->FY00));
+				break;
+			case '1':
+				unknown_v3_cmd(p, response, buf, state->FY10, sizeof(state->FY10));
+				break;
+			case '2':
+				unknown_v3_cmd(p, response, buf, state->FY20, sizeof(state->FY20));
+				break;
+			default:
+				s21_nak(p, buf, len);
+				continue;
+			}
+			break;
 		 default:
 		    // Respond NAK to an unknown command. My FTXF20D does the same.
 		    s21_nak(p, buf, len);
@@ -642,9 +710,9 @@ main(int argc, const char *argv[])
 	               state->M[0], state->M[1], state->M[2], state->M[3]);
 		// This is sent by BRP069B41 and response is mandatory. The controller
 		// loops forever if NAK is received.
-		// I experimentally found out that this command doesn't have a second
-		// byte, and the A/C always responds with this. Note non-standard
-		// response form.
+		// I experimentally found out that this command doesn't actually have a
+		// second byte, and the A/C always responds with the same data regardless
+		// of what we send (MA, MB, MC, ...). Note non-standard response form.
 		response[S21_CMD0_OFFSET] = 'M';
 		response[2] = state->M[0];
 		response[3] = state->M[1];
@@ -689,6 +757,18 @@ main(int argc, const char *argv[])
 		    s21_nak(p, buf, len);
 		    continue;
 		 }
+	  } else if (!memcmp(&buf[S21_CMD0_OFFSET], "VS000M", 6)) {
+		if (debug) {
+			printf(" -> unknown ('VS') =");
+			hexdump_raw(state->VS, sizeof(state->VS));
+			putchar('\n');
+		}
+
+		response[S21_CMD0_OFFSET] = 'V';
+    	response[S21_CMD1_OFFSET] = 'S';
+
+   		memcpy(&response[S21_PAYLOAD_OFFSET], state->VS, sizeof(state->VS));
+		s21_nonstd_reply(p, response, 2 + sizeof(state->VS));
 	  } else {
 		  s21_nak(p, buf, len);
 		  continue;

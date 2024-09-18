@@ -129,9 +129,10 @@ static int parse_raw(int argc, const char **argv, unsigned char *v, unsigned int
     for (i = 0; i < len; i++) {
         const char *val = argv[i];
 
-        // A single quote would've been more natural, but one has to shield it with
-        // '\' in bash, and that's inconvenient
-        if (val[0] == '^') {
+        // A single quote is more natural, but one has to shield it with
+        // '\' in bash, and that's inconvenient. So we may also use ^, which isn't
+        // a special character
+        if (val[0] == '^' || val[0] == '\'') {
             v[i] = val[1];
         } else {
             char *endp = NULL;
@@ -159,13 +160,15 @@ static void enum_option(const char* name, const char *description, const struct 
     putchar('\n');
 }
 
-static void raw_option(const char *opt)
+static void raw_option(const char *opt, unsigned int len)
 {
-    printf(" %s <b0> <b1> <b2> <b3> - Raw value (4 bytes) of response to  %s\n", opt, opt);
+    printf(" %s <b0> <b1> ... - Raw value (%u bytes) of response to %s\n", opt, len, opt);
 }
 
 void state_options_help(void)
 {
+    const struct S21State* state = NULL; // For RAW_OPTION() macro below
+
     printf("Supported state options:\n"
            " power <bool> - power on/off\n"
            " powerful <bool> - powerful mode on/off\n"
@@ -178,24 +181,32 @@ void state_options_help(void)
 	       " comprpm <int> - Compressor rpm\n"
 	       " protocol <b0> <b1> <b2> <b3> - Reported protocol version (raw value, 4 bytes)\n"
 	       " consumption <int> - Reported power consumption\n");
-    raw_option("F2");
-    raw_option("F3");
-    raw_option("F4");
-    raw_option("FB");
-    raw_option("FG");
-    raw_option("FK");
-    raw_option("FN");
-    raw_option("FP");
-    raw_option("FQ");
-    raw_option("FR");
-    raw_option("FS");
-    raw_option("FT");
-    raw_option("M");
+#define RAW_OPTION(cmd) raw_option(#cmd, sizeof(state->cmd))
+    RAW_OPTION(F2);
+    RAW_OPTION(F3);
+    RAW_OPTION(F4);
+    RAW_OPTION(FB);
+    RAW_OPTION(FG);
+    RAW_OPTION(FK);
+    RAW_OPTION(FN);
+    RAW_OPTION(FP);
+    RAW_OPTION(FQ);
+    RAW_OPTION(FR);
+    RAW_OPTION(FS);
+    RAW_OPTION(FT);
+    RAW_OPTION(FV);
+    RAW_OPTION(M);
+    RAW_OPTION(FU00);
+    RAW_OPTION(FU02);
+    RAW_OPTION(FY00);
+    RAW_OPTION(FY10);
+    RAW_OPTION(FY20);
+    RAW_OPTION(VS);
     printf("Supported boolean values: 'on', 'true', '1', 'off', 'false', '0'\n"
            "Integer values can be prefixed with 0x for hex or 0 for octal\n"
            "Enum can also be specified as raw integer value for experimental purposes\n"
-           "Raw bytes can be specified either as integers or as character prefixed by ^\n"
-           "(for example: M ^3 ^E ^5 ^3)");
+           "Raw bytes can be specified either as integers or as character prefixed by ^ or '\n"
+           "(for example: M ^3 ^E ^5 ^3). ^ is provided for convenience when using shell");
 }
 
 int parse_item(int argc, const char **argv, struct S21State *state)
@@ -239,7 +250,14 @@ int parse_item(int argc, const char **argv, struct S21State *state)
     PARSE_RAW(FR)
     PARSE_RAW(FS)
     PARSE_RAW(FT)
+    PARSE_RAW(FV)
     PARSE_RAW(M)
+    PARSE_RAW(FU00)
+    PARSE_RAW(FU02)
+    PARSE_RAW(FY00)
+    PARSE_RAW(FY10)
+    PARSE_RAW(FY20)
+    PARSE_RAW(VS)
     else {
         fprintf(stderr, "Unknown option %s\n", opt);
         return -1;
