@@ -39,7 +39,9 @@ struct S21State
     unsigned char VS[14];
 };
 
-#define SHARED_MEM_NAME "Faikin-S21"
+// POSIX shm requires the name to start with '/' for portability reasons.
+// Works also on Windows with no problems, so let it be
+#define SHARED_MEM_NAME "/Faikin-S21"
 
 void state_options_help(void);
 int parse_item(int argc, const char **argv, struct S21State *state);
