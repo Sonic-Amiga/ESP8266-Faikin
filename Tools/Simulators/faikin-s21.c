@@ -417,15 +417,21 @@ main(int argc, const char *argv[])
 	  }
 
       if (debug) {
-         printf("Got command: %c%c\n", buf[1], buf[2]);
-		 hexdump_raw(&buf[S21_PAYLOAD_OFFSET], len - S21_FRAMING_LEN - 2);
+		if (len < S21_MIN_PKT_LEN) {
+			// It's possible to have 1-character commands. We know 'M' (below)
+			printf("Got command: %c\n", buf[S21_CMD0_OFFSET]);
+		} else {
+         	printf("Got command: %c%c", buf[S21_CMD0_OFFSET], buf[S21_CMD1_OFFSET]);
+		 	hexdump_raw(&buf[S21_PAYLOAD_OFFSET], len - S21_MIN_PKT_LEN);
+		 	putchar('\n');
+		}
 	  }
 
-	  if (buf[1] == 'D') {
+	  if (len > S21_MIN_PKT_LEN && buf[S21_CMD0_OFFSET] == 'D') {
 		 // Set value. No response expected, just ACK.
 		 s21_ack(p);
 
-		 switch (buf[2]) {
+		 switch (buf[S21_CMD1_OFFSET]) {
 	     case '1':
 		    state->power = buf[S21_PAYLOAD_OFFSET + 0] - '0'; // ASCII char
 			state->mode  = buf[S21_PAYLOAD_OFFSET + 1] - '0'; // See AC_MODE_*
@@ -463,9 +469,77 @@ main(int argc, const char *argv[])
 		 continue;
 	  }
 
-      if (buf[1] == 'F') {
-		 // Query control settings
-		 switch (buf[2]) {
+	  if (len >= S21_MIN_V3_PKT_LEN && buf[S21_CMD0_OFFSET] == 'F' && buf[S21_CMD1_OFFSET] == 'U' && buf[S21_V3_CMD2_OFFSET] == '0') {
+		 // FY0x are protocol v3 commands. 4-character codes.
+		 switch (buf[S21_V3_CMD2_OFFSET])
+		 {
+		 case '0':
+			unknown_v3_cmd(p, response, buf, state->FU00, sizeof(state->FU00));
+			break;
+		 case '2':
+			unknown_v3_cmd(p, response, buf, state->FU02, sizeof(state->FU02));
+			break;
+		 default:
+			s21_nak(p, buf, len);
+			continue;
+		}
+	  } else if (len >= S21_MIN_V3_PKT_LEN && buf[S21_CMD0_OFFSET] == 'F' && buf[S21_CMD1_OFFSET] == 'Y' && buf[S21_V3_CMD3_OFFSET] == '0') {
+		// FYx0 v3 commands
+		// My FTXF only responds to FY00, FY10, FY20, let's implement this logic
+		switch (buf[S21_V3_CMD2_OFFSET])
+		{
+		case '0':
+			unknown_v3_cmd(p, response, buf, state->FY00, sizeof(state->FY00));
+			break;
+		case '1':
+			unknown_v3_cmd(p, response, buf, state->FY10, sizeof(state->FY10));
+			break;
+		case '2':
+			unknown_v3_cmd(p, response, buf, state->FY20, sizeof(state->FY20));
+			break;
+		default:
+			s21_nak(p, buf, len);
+			continue;
+		}
+	  } else if (len >= S21_FRAMING_LEN + 6 && !memcmp(&buf[S21_CMD0_OFFSET], "VS000M", 6)) {
+		 // This is sent by BRP069B41 for protocol v3. Note non-standard response form
+		 // (no first byte increment). Purpose is currently unknown.
+		 if (debug) {
+			printf(" -> unknown ('VS') =");
+			hexdump_raw(state->VS, sizeof(state->VS));
+			putchar('\n');
+		 }
+
+		 response[S21_CMD0_OFFSET] = 'V';
+    	 response[S21_CMD1_OFFSET] = 'S';
+
+   		 memcpy(&response[S21_PAYLOAD_OFFSET], state->VS, sizeof(state->VS));
+		 s21_nonstd_reply(p, response, 2 + sizeof(state->VS));
+	  } else if (len > S21_FRAMING_LEN && buf[S21_CMD0_OFFSET] == 'M') {
+		// One-character command.
+		// This is sent by BRP069B41 for protocol < v3 and response is mandatory.
+		// The controller loops forever if NAK is received.
+		// I experimentally found out that the A/C just swallows any extra bytes
+		// and always responds with the same data.
+		// All my AC's (v2 and v3) respond with ASCII 'FFFF', however from reverse
+		// engineering thread we know that v0 conditioners have 4 hex digits here,
+		// which look similar to FC response from v2 conditioners; and they don't
+		// support F8. Therefore our best guess is that this command returns
+		// model code for v0/v1 protocol. 'M' very well stands for 'Model'.
+		if (debug)
+		    printf(" -> unknown ('M') = 0x%02X 0x%02X 0x%02X 0x%02X\n",
+	               state->M[0], state->M[1], state->M[2], state->M[3]);
+
+		response[S21_CMD0_OFFSET] = 'M';
+		response[2] = state->M[0];
+		response[3] = state->M[1];
+		response[4] = state->M[2];
+		response[5] = state->M[3];
+
+		s21_nonstd_reply(p, response, 5);
+      } else if (len >= S21_MIN_PKT_LEN && buf[S21_CMD0_OFFSET] == 'F') {
+		 // Query control settings, common commands.
+		 switch (buf[S21_CMD1_OFFSET]) {
 	     case '1':
 		    if (debug)
 		       printf(" -> power %d mode %d temp %.1f\n", state->power, state->mode, state->temp);
@@ -657,70 +731,12 @@ main(int argc, const char *argv[])
 			// one by one and simply ran all the alphabet up to FZZ on my FTXF20D, so here it is.
 			unknown_cmd(p, response, buf, state->FV, S21_PAYLOAD_LEN);
 			break;
-		 // The following is protocol v3 commands
-		 case 'U':
-		    if (len != S21_MIN_V3_PKT_LEN || buf[S21_V3_CMD2_OFFSET] != '0' ) {
-				s21_nak(p, buf, len);
-				continue;
-			}
-			switch (buf[S21_V3_CMD2_OFFSET])
-			{
-			case '0':
-				unknown_v3_cmd(p, response, buf, state->FU00, sizeof(state->FU00));
-				break;
-			case '2':
-				unknown_v3_cmd(p, response, buf, state->FU02, sizeof(state->FU02));
-				break;
-			default:
-				s21_nak(p, buf, len);
-				continue;
-			}
-			break;
-		 case 'Y':
-		 	// v3 protocol commands are 4-byte long.
-			// My FTXF only responds to FY00, FY10, FY20, let's implement this logic
-		    if (len - S21_MIN_V3_PKT_LEN || buf[S21_V3_CMD3_OFFSET] != '0' ) {
-				s21_nak(p, buf, len);
-				continue;
-			}
-			switch (buf[S21_V3_CMD2_OFFSET])
-			{
-			case '0':
-				unknown_v3_cmd(p, response, buf, state->FY00, sizeof(state->FY00));
-				break;
-			case '1':
-				unknown_v3_cmd(p, response, buf, state->FY10, sizeof(state->FY10));
-				break;
-			case '2':
-				unknown_v3_cmd(p, response, buf, state->FY20, sizeof(state->FY20));
-				break;
-			default:
-				s21_nak(p, buf, len);
-				continue;
-			}
-			break;
 		 default:
 		    // Respond NAK to an unknown command. My FTXF20D does the same.
 		    s21_nak(p, buf, len);
 		    continue;
 		 }
-	  } else if (buf[S21_CMD0_OFFSET] == 'M') {
-		if (debug)
-		    printf(" -> unknown ('MM') = 0x%02X 0x%02X 0x%02X 0x%02X\n",
-	               state->M[0], state->M[1], state->M[2], state->M[3]);
-		// This is sent by BRP069B41 and response is mandatory. The controller
-		// loops forever if NAK is received.
-		// I experimentally found out that this command doesn't actually have a
-		// second byte, and the A/C always responds with the same data regardless
-		// of what we send (MA, MB, MC, ...). Note non-standard response form.
-		response[S21_CMD0_OFFSET] = 'M';
-		response[2] = state->M[0];
-		response[3] = state->M[1];
-		response[4] = state->M[2];
-		response[5] = state->M[3];
-
-		s21_nonstd_reply(p, response, 5);
-	  } else if (buf[S21_CMD0_OFFSET] == 'R') {
+	  } else if (len >= S21_MIN_PKT_LEN && buf[S21_CMD0_OFFSET] == 'R') {
 		 // Query sensors
 		 switch (buf[S21_CMD1_OFFSET]) {
 	     case 'H':
@@ -757,18 +773,6 @@ main(int argc, const char *argv[])
 		    s21_nak(p, buf, len);
 		    continue;
 		 }
-	  } else if (!memcmp(&buf[S21_CMD0_OFFSET], "VS000M", 6)) {
-		if (debug) {
-			printf(" -> unknown ('VS') =");
-			hexdump_raw(state->VS, sizeof(state->VS));
-			putchar('\n');
-		}
-
-		response[S21_CMD0_OFFSET] = 'V';
-    	response[S21_CMD1_OFFSET] = 'S';
-
-   		memcpy(&response[S21_PAYLOAD_OFFSET], state->VS, sizeof(state->VS));
-		s21_nonstd_reply(p, response, 2 + sizeof(state->VS));
 	  } else {
 		  s21_nak(p, buf, len);
 		  continue;
