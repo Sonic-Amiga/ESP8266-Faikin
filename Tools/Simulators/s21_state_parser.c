@@ -20,6 +20,37 @@ static struct EnumOption humidity[] =
     {NULL, 0}
 };
 
+static int parse_protocol(int argc, const char **argv, struct S21State *state)
+{
+    const char *opt = argv[0];
+    unsigned long major;
+    unsigned long minor = 0;
+    char *endp = NULL;
+
+    if (argc < 2) {
+        fprintf(stderr, "%s: version number is required: XX or XX.XX\n", opt);
+        return -1;
+    }
+
+    major = strtoul(argv[1], &endp, 10);
+
+    if (endp && *endp == '.') {
+        minor = strtoul(endp + 1, &endp, 10);
+    }
+    if (endp && *endp) {
+        fprintf(stderr, "%s: Malformed version number '%s'\n", opt, argv[1]);
+        return -1;
+    }
+    if (major > 99 || minor > 99) {
+        fprintf(stderr, "%s: Version number '%s' is out of range; max value is 99 (2 digits)\n", opt, argv[1]);
+        return -1;
+    }
+
+    state->protocol_major = major;
+    state->protocol_minor = minor;
+    return 2;
+}
+
 static int parse_bool(int argc, const char **argv, int *v)
 {
     const char *opt, *val;
@@ -179,7 +210,7 @@ void state_options_help(void)
     printf(" temp <float> - Target temperature in C\n"
            " fanrpm <int> - Fan rpm (divided by 10)\n"
 	       " comprpm <int> - Compressor rpm\n"
-	       " protocol <b0> <b1> <b2> <b3> - Reported protocol version (raw value, 4 bytes)\n"
+	       " protocol <major>.<minor> - Reported protocol version. Major and minor are 2 digits max.\n"
 	       " consumption <int> - Reported power consumption\n");
 #define RAW_OPTION(cmd) raw_option(#cmd, sizeof(state->cmd))
     RAW_OPTION(F2);
@@ -198,7 +229,6 @@ void state_options_help(void)
     RAW_OPTION(M);
     RAW_OPTION(FU00);
     RAW_OPTION(FU02);
-    RAW_OPTION(FY00);
     RAW_OPTION(FY10);
     RAW_OPTION(FY20);
     RAW_OPTION(VS);
@@ -231,7 +261,7 @@ int parse_item(int argc, const char **argv, struct S21State *state)
     } else if (!strcmp(opt, "comprpm")) {
         return parse_int(argc, argv, &state->comprpm);
     } else if (!strcmp(opt, "protocol"))  {
-        return parse_raw(argc, argv, state->protocol, sizeof(state->protocol));
+        return parse_protocol(argc, argv, state);
     } else if (!strcmp(opt, "model")) {
         return parse_string(argc, argv, state->model, sizeof(state->model));
     }
@@ -254,7 +284,6 @@ int parse_item(int argc, const char **argv, struct S21State *state)
     PARSE_RAW(M)
     PARSE_RAW(FU00)
     PARSE_RAW(FU02)
-    PARSE_RAW(FY00)
     PARSE_RAW(FY10)
     PARSE_RAW(FY20)
     PARSE_RAW(VS)

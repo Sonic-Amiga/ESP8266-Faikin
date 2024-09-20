@@ -37,7 +37,8 @@ static struct S21State init_state = {
    .comprpm  = 42,   // Compressor RPM
    .consumption = 2, // Power consumption in 100 Wh units
    // The following Values are taken from FTXF20D5V1B
-   .protocol = {'0', '2', '0', '0'},    // Protocol version
+   .protocol_major = 3,  // Protocol version
+   .protocol_minor = 20,
    .model    = {'1', '3', '5', 'D'},
    .F2       = {0x34, 0x3A, 0x00, 0x80},
    .F3       = {0x30, 0xFE, 0xFE, 0x00},
@@ -57,7 +58,6 @@ static struct S21State init_state = {
                 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
    .FU02     = {0x36, 0x43, 0x37, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, // 00000000000007C6
                 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
-   .FY00     = {'0', '2', '3', '0'},
    .FY10     = {'A', '8', 'D', '3', '6', '6', '6', 'F'},
    .FY20     = {'E', '4', '0', '2'},
    .VS       = {'1', '8', '1', '5', '1', '0', '7', '1', 'M', '0', '0', '0', '0', '0'}
@@ -473,7 +473,8 @@ main(int argc, const char *argv[])
 		 continue;
 	  }
 
-	  if (len >= S21_MIN_V3_PKT_LEN && buf[S21_CMD0_OFFSET] == 'F' && buf[S21_CMD1_OFFSET] == 'U' && buf[S21_V3_CMD2_OFFSET] == '0') {
+	  if (state->protocol_major > 2 && len >= S21_MIN_V3_PKT_LEN &&
+	      buf[S21_CMD0_OFFSET] == 'F' && buf[S21_CMD1_OFFSET] == 'U' && buf[S21_V3_CMD2_OFFSET] == '0') {
 		 // FY0x are protocol v3 commands. 4-character codes.
 		 switch (buf[S21_V3_CMD2_OFFSET])
 		 {
@@ -487,13 +488,28 @@ main(int argc, const char *argv[])
 			s21_nak(p, buf, len);
 			continue;
 		}
-	  } else if (len >= S21_MIN_V3_PKT_LEN && buf[S21_CMD0_OFFSET] == 'F' && buf[S21_CMD1_OFFSET] == 'Y' && buf[S21_V3_CMD3_OFFSET] == '0') {
-		// FYx0 v3 commands
-		// My FTXF only responds to FY00, FY10, FY20, let's implement this logic
+	  } else if (state->protocol_major > 2 && len >= S21_MIN_V3_PKT_LEN &&
+	             buf[S21_CMD0_OFFSET] == 'F' && buf[S21_CMD1_OFFSET] == 'Y' && buf[S21_V3_CMD3_OFFSET] == '0') {
+		char fmt_buffer[5];
+		// FYx0 v3 commands. BRP069B41 polls these only once per session and caches values, so
+		// these are clearly some immutable identification codes.
 		switch (buf[S21_V3_CMD2_OFFSET])
 		{
 		case '0':
-			unknown_v3_cmd(p, response, buf, state->FY00, sizeof(state->FY00));
+		    // FY00 - protocol version for v3+. Inverted spelling of XXYY, where XX = major, YY - minor
+			// F8 command still replies v2 for newer protocols; real v2 is detected by responding NAK
+			// to this command.
+			snprintf(fmt_buffer, sizeof(fmt_buffer), "%02u%02u", state->protocol_major, state->protocol_minor);
+			if (debug)
+	   			printf(" -> Protocol version (new) = %s\n", fmt_buffer);
+
+			// Order traditionally inverted
+			response[S21_V3_PAYLOAD_OFFSET + 0] = fmt_buffer[3];
+			response[S21_V3_PAYLOAD_OFFSET + 1] = fmt_buffer[2];
+			response[S21_V3_PAYLOAD_OFFSET + 2] = fmt_buffer[1];
+			response[S21_V3_PAYLOAD_OFFSET + 3] = fmt_buffer[0];
+
+			s21_v3_reply(p, response, buf, S21_PAYLOAD_LEN);
 			break;
 		case '1':
 			unknown_v3_cmd(p, response, buf, state->FY10, sizeof(state->FY10));
@@ -621,20 +637,19 @@ main(int argc, const char *argv[])
 			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
 			break;
 		case '8':
+			// 'F8' - Protocol version prior to v3. For v3 (and, supposedly, above) frozen at '2';
+			// real version number can be obtained from FY00 command. Real old version A/Cs (for
+			// example my ATX20K2V1B, protocol v2) set payload bytes 2 and 3 to 0x00, not '0', but
+			// it doesn't seem to affect interpretation by BRP069B41, so we don't bother.
+			// payload[0] could in theory be minor number, but again, BRP doesn't honor it as such,
+			// neither we have seen any A/C which reports something other from '0' there.
+		    response[S21_PAYLOAD_OFFSET + 0] = '0';
+			response[S21_PAYLOAD_OFFSET + 1] = state->protocol_major > 2 ? '2' : '0' + state->protocol_major;
+			response[S21_PAYLOAD_OFFSET + 2] = '0';
+			response[S21_PAYLOAD_OFFSET + 3] = '0';
+
 		    if (debug)
-		       printf(" -> Protocol version = 0x%02X 0x%02X 0x%02X 0x%02X\n",
-			          state->protocol[0], state->protocol[1], state->protocol[2], state->protocol[3]);
-			// 'F8' - this is found out to be protocol version.
-			// My FTXF20D replies with '0020' (assuming reading in reverse like everything else).
-			// If we say that, BRP069B41 then asks for F9 (we know it's different form of home/outside sensor)
-			// then proceeds requiring more commands, majority of english alphabet. I got tired implementing
-			// all of them and tried to downgrade the response to '0000'. This caused the controller sending
-			// 'MM' command (see below), and then it goes online with our emulated A/C.
-			// '0010' gives the same results
-		    response[3] = state->protocol[0];
-			response[4] = state->protocol[1];
-			response[5] = state->protocol[2];
-			response[6] = state->protocol[3];
+		       printf(" -> Protocol version (old) = 0x%c\n", response[S21_PAYLOAD_OFFSET + 1] );
 
 			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
 			break;
