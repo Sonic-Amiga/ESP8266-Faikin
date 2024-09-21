@@ -46,7 +46,7 @@ static struct S21State init_state = {
    .F4       = {0x30, 0x00, 0x80, 0x30},
    .FB       = {0x30, 0x33, 0x36, 0x30}, // 0630
    .FG       = {0x30, 0x34, 0x30, 0x30}, // 0040
-   .FK       = {0x79, 0x73, 0x35, 0x31}, // Modified: land=1
+   .FK       = {0x39, 0x73, 0x35, 0x31}, // Modified: land=1,atlmt_l=0,atlmt_h=0
    .FN       = {0x30, 0x30, 0x30, 0x30}, // 0000
    .FP       = {0x37, 0x33, 0x30, 0x30}, // 0037
    .FQ       = {0x45, 0x33, 0x30, 0x30}, // 003E
@@ -715,6 +715,8 @@ main(int argc, const char *argv[])
 			// byte 0:
 			// - bit 2: acled=<bool>. LED control available ?
 			// - bit 3: land=<bool>
+			// - bit 6: When set to 0, atlmt_l=0,atlmt_h=0 parameters are displayed by the controller. 1 = hidden
+			//          Only for protocol v3; ignored on lower versions
 			// byte 1:
 			// - bit 0: elec=<bool>
 			// - bit 2: temp_rng=<bool>
@@ -734,7 +736,8 @@ main(int argc, const char *argv[])
 			//    app always shows "fan off", and attempts to control it do nothing. If the app is restarted,
 			//    it doesn't show fan controls (neither speed nor swing) at all for this unit.
 			// - bit 3: disp_dry=<bool>
-			// byte 3 - doesn't change anything
+			// byte 3:
+			// - bit 0: Protocol v3: demand mode available. Ignored on <= v2.
 			// FTXF20D values: 0x71, 0x73, 0x35, 0x31
 			unknown_cmd(p, response, buf, state->FK, S21_PAYLOAD_LEN);
 			break;
