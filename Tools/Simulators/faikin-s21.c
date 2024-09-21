@@ -487,9 +487,25 @@ main(int argc, const char *argv[])
 		 switch (buf[S21_V3_CMD3_OFFSET])
 		 {
 		 case '0':
+		    // FU00 - Special modes availability
+            // byte 0 - "Powerful" mode availability flag. 0x33 - enabled, 0x30 - disabled
+            // byte 1 - "Econo" mode availability flag. 0x33 - enabled, 0x30 - disabled
+            // byte 3 - unknown. Set to 0x33 (enabled) on FTXF20D5V1B, but no mode_info flag was found.
+            // byte 3 - unknown
+            // byte 4 - unknown. Set to 0x33 (enabled) on FTXF20D5V1B, but no mode_info flag was found.
+            // byte 5 - "Streamer" mode availability flag. 0x33 - enabled, 0x30 - disabled
+            // the rest - unknown, could be reserved.
 			unknown_v3_cmd(p, response, buf, state->FU00, sizeof(state->FU00));
 			break;
 		 case '2':
+		 	// FU02 - temperature ranges (perhaps). Displayed in /aircon/get_model_info:
+			// byte 1 - Unknown parameter (atlmt_h). Valid values are from 0xA0 to 0xB0 (inclusive).
+			//          Actual value is calculated as: atlmt_l = (byte - 0xA0) / 2.0.
+			//          If byte value is outside of the valid range, atlmt_h=0 is shown.
+			// byte 2 - Maximum allowed temperature for Heat mode (hmlmt_l). Valid values
+			//          are from 0x30 to 0x6F (inclusive); Actual value is calculated as:
+			//          hmlmt_l = (byte - 0x30) / 2.0 + 10.0. If byte value is outside of
+			//          the valid range, the hmlmt_t parameter is not shown.
 			unknown_v3_cmd(p, response, buf, state->FU02, sizeof(state->FU02));
 			break;
 		 case '4':
@@ -711,7 +727,7 @@ main(int argc, const char *argv[])
 			unknown_cmd(p, response, buf, state->FG, S21_PAYLOAD_LEN);
 			break;
 		 case 'K':
-		    // Optional features. Displayed in /aircon/get_model_info:
+		    // Optional v2+ features. Displayed in /aircon/get_model_info:
 			// byte 0:
 			// - bit 2: acled=<bool>. LED control available ?
 			// - bit 3: land=<bool>
@@ -797,9 +813,11 @@ main(int argc, const char *argv[])
 			// {"protocol":"S21","dump":"0253613035312B7503","Sa":"051+"} - outside
 			// {"protocol":"S21","dump":"02534E3532312B6403","SN":"521+"} - ???
 			// {"protocol":"S21","dump":"0253583033322B6B03","SX":"032+"} - ???
+			// This one is reported in /aircon/get_monitordata as trtmp=
 		    send_temp(p, response, buf, 235, "unknown ('RN')");
 		    break;
 	     case 'X':
+		    // This one is reported in /aircon/get_monitordata as fangl=
 		    send_temp(p, response, buf, 215, "unknown ('RX')");
 		    break;
 		 default:
