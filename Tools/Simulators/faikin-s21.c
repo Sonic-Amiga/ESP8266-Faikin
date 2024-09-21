@@ -758,6 +758,7 @@ main(int argc, const char *argv[])
 			unknown_cmd(p, response, buf, state->FK, S21_PAYLOAD_LEN);
 			break;
 		 case 'N':
+		    // FN - unknown, reported as first 4 bytes of itelc= in /aircon/get_monitordata
 			unknown_cmd(p, response, buf, state->FN, S21_PAYLOAD_LEN);
 			break;
 		 case 'P':
