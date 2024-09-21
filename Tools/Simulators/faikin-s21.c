@@ -54,13 +54,14 @@ static struct S21State init_state = {
    .FT       = {0x31, 0x30, 0x30, 0x30}, // 0001
    .FV       = {0x33, 0x37, 0x83, 0x30},
    .M        = {'F', 'F', 'F', 'F'},
+   .V        = {'2', '5', '5', '0'},
+   .VS000M   = {'1', '8', '1', '5', '1', '0', '7', '1', 'M', '0', '0', '0', '0', '0'},
    .FU00     = {0xA0, 0xA0, 0x30 ,0x31, 0x30, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
                 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
    .FU02     = {0x36, 0x43, 0x37, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, // 00000000000007C6
                 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
    .FY10     = {'A', '8', 'D', '3', '6', '6', '6', 'F'},
-   .FY20     = {'E', '4', '0', '2'},
-   .VS       = {'1', '8', '1', '5', '1', '0', '7', '1', 'M', '0', '0', '0', '0', '0'}
+   .FY20     = {'E', '4', '0', '2'}
 };
 
 static void usage(const char *progname)
@@ -127,11 +128,15 @@ static void load_settings(const char *filename)
 	}
 
 	while (fgets(line, sizeof(line), f)) {
+		// This is technically max number of space-separated entries on one line, i. e.
+		// one S21 command descriptor.
+		// Maxumum known payload length for one S21 command is 32 bytes, plus command code
+		const size_t max_command_line_length = 33;
 		char *p = line;
-		const char *argv[5];
+		const char *argv[max_command_line_length];
 		int argc = 0;
 	
-		for (int i = 0; i < 5; i++) {
+		for (int i = 0; i < max_command_line_length; i++) {
 			while (isspace(*p))
 				p++;
 			if (!*p || *p == '#')
@@ -476,7 +481,7 @@ main(int argc, const char *argv[])
 	  if (state->protocol_major > 2 && len >= S21_MIN_V3_PKT_LEN &&
 	      buf[S21_CMD0_OFFSET] == 'F' && buf[S21_CMD1_OFFSET] == 'U' && buf[S21_V3_CMD2_OFFSET] == '0') {
 		 // FY0x are protocol v3 commands. 4-character codes.
-		 switch (buf[S21_V3_CMD2_OFFSET])
+		 switch (buf[S21_V3_CMD3_OFFSET])
 		 {
 		 case '0':
 			unknown_v3_cmd(p, response, buf, state->FU00, sizeof(state->FU00));
@@ -525,16 +530,16 @@ main(int argc, const char *argv[])
 		 // This is sent by BRP069B41 for protocol v3. Note non-standard response form
 		 // (no first byte increment). Purpose is currently unknown.
 		 if (debug) {
-			printf(" -> unknown ('VS') =");
-			hexdump_raw(state->VS, sizeof(state->VS));
+			printf(" -> unknown ('VS000M') =");
+			hexdump_raw(state->VS000M, sizeof(state->VS000M));
 			putchar('\n');
 		 }
 
 		 response[S21_CMD0_OFFSET] = 'V';
     	 response[S21_CMD1_OFFSET] = 'S';
 
-   		 memcpy(&response[S21_PAYLOAD_OFFSET], state->VS, sizeof(state->VS));
-		 s21_nonstd_reply(p, response, 2 + sizeof(state->VS));
+   		 memcpy(&response[S21_PAYLOAD_OFFSET], state->VS000M, sizeof(state->VS000M));
+		 s21_nonstd_reply(p, response, 2 + sizeof(state->VS000M));
 	  } else if (len > S21_FRAMING_LEN && buf[S21_CMD0_OFFSET] == 'M') {
 		// One-character command.
 		// This is sent by BRP069B41 for protocol < v3 and response is mandatory.

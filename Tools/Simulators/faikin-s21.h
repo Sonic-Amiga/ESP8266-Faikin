@@ -32,11 +32,12 @@ struct S21State
     unsigned char FT[4];
     unsigned char FV[4];
     unsigned char M[4];
+    unsigned char V[4];
+    unsigned char VS000M[14];
     unsigned char FU00[32];
     unsigned char FU02[32];
     unsigned char FY10[8];
     unsigned char FY20[4];
-    unsigned char VS[14];
 };
 
 // POSIX shm requires the name to start with '/' for portability reasons.

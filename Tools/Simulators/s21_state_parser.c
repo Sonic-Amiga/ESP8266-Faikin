@@ -153,7 +153,7 @@ static int parse_raw(int argc, const char **argv, unsigned char *v, unsigned int
     unsigned int i;
 
     if (argc < len + 1) {
-        fprintf(stderr, "%s: %u numeric values are required\n", opt, len);
+        fprintf(stderr, "%s: %u payload bytes are required; only %u given\n", opt, len, argc - 1);
         return -1;
     }
 
@@ -227,11 +227,12 @@ void state_options_help(void)
     RAW_OPTION(FT);
     RAW_OPTION(FV);
     RAW_OPTION(M);
+    RAW_OPTION(V);
+    RAW_OPTION(VS000M);
     RAW_OPTION(FU00);
     RAW_OPTION(FU02);
     RAW_OPTION(FY10);
     RAW_OPTION(FY20);
-    RAW_OPTION(VS);
     printf("Supported boolean values: 'on', 'true', '1', 'off', 'false', '0'\n"
            "Integer values can be prefixed with 0x for hex or 0 for octal\n"
            "Enum can also be specified as raw integer value for experimental purposes\n"
@@ -282,11 +283,12 @@ int parse_item(int argc, const char **argv, struct S21State *state)
     PARSE_RAW(FT)
     PARSE_RAW(FV)
     PARSE_RAW(M)
+    PARSE_RAW(V)
+    PARSE_RAW(VS000M)
     PARSE_RAW(FU00)
     PARSE_RAW(FU02)
     PARSE_RAW(FY10)
     PARSE_RAW(FY20)
-    PARSE_RAW(VS)
     else {
         fprintf(stderr, "Unknown option %s\n", opt);
         return -1;
