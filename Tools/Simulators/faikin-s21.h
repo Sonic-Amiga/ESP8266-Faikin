@@ -7,7 +7,13 @@ struct S21State
     int          swing;    // Swing direction
     int          humidity; // Humidity setting
     int          powerful; // Powerful mode
+    int          comfort;  // Comfort mode
+    int          quiet;    // Quiet mode
+    int          sensor;   // Sensor mode
+    int          led;      // LED on/off
+    int          streamer; // Streamer mode
     int          eco;      // Eco mode
+    int          demand;   // Demand setting
     int          home;     // Reported temparatures (multiplied by 10 here)
     int          outside;
     int          inlet;

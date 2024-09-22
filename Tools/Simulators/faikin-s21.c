@@ -29,7 +29,13 @@ static struct S21State init_state = {
    .fan      = 3,    // Fan speed
    .swing    = 0,    // Swing direction
    .powerful = 0,    // Powerful mode
+   .comfort  = 0,    // Comfort mode
+   .quiet    = 0,    // Quiet mode
+   .streamer = 0,    // Streamer mode
+   .sensor   = 0,    // Sensor mode
+   .led      = 0,    // LED mode
    .eco      = 0,    // Eco mode
+   .demand   = 0,    // Demand setting
    .home     = 245,  // Reported temparatures (multiplied by 10 here)
    .outside  = 205,
    .inlet    = 185,
@@ -456,20 +462,30 @@ main(int argc, const char *argv[])
 		    state->swing = buf[S21_PAYLOAD_OFFSET + 0] - '0'; // ASCII char
 			state->humidity = buf[S21_PAYLOAD_OFFSET + 2];
 			// Payload offset 1 equals to '?' for "on" and '0' for "off
-			// Payload offset 2 and 3 are always '0', seem unused
 
-			printf(" Set swing %d humidity 0x%08X byte[1] 0x%08X byte[3] 0x%08X", state->swing, state->humidity,
+			printf(" Set swing %d humidity %d byte[1] 0x%02X byte[3] 0x%02X\n", state->swing, state->humidity,
 			       buf[S21_PAYLOAD_OFFSET + 1], buf[S21_PAYLOAD_OFFSET + 3]);
 			break;
 		 case '6':
-		    state->powerful = buf[S21_PAYLOAD_OFFSET + 0] == '2'; // '2' or '0'
-			// My Daichi controller always sends 'D6 0 0 0 0' for 'Eco',
-			// both on and off. Bug or feature ?
+		    state->powerful = (buf[S21_PAYLOAD_OFFSET] & 0x02) ? 1 : 0;
+			state->comfort  = (buf[S21_PAYLOAD_OFFSET] & 0x40) ? 1 : 0;
+			state->quiet    = (buf[S21_PAYLOAD_OFFSET] & 0x80) ? 1 : 0;
+			state->streamer = (buf[S21_PAYLOAD_OFFSET + 1] & 0x80) ? 1 : 0;
+			state->sensor   = (buf[S21_PAYLOAD_OFFSET + 3] & 0x08) ? 1 : 0;
+			state->led      = (buf[S21_PAYLOAD_OFFSET + 3] & 0x04) ? 1 : 0;
 
-			printf(" Set powerful %d spare bytes", state->powerful);
-			hexdump_raw(&buf[S21_PAYLOAD_OFFSET + 1], S21_PAYLOAD_LEN - 1);
-			printf("\n");
+			printf(" Set powerful %d comfort %d quiet %d streamer %d sensor %d led %d\n",
+			       state->powerful, state->comfort, state->quiet, state->streamer,
+				   state->sensor, state->led);
 			break;
+		 case '7':
+		 	 state->demand = buf[S21_PAYLOAD_OFFSET] - 0x30;
+		 	 state->eco = buf[S21_PAYLOAD_OFFSET + 1]  == '2'; // '2' or '0'
+
+			 printf(" Set demand %d eco %d spare bytes", state->demand, state->eco);
+			 hexdump_raw(&buf[S21_PAYLOAD_OFFSET + 2], S21_PAYLOAD_LEN - 2);
+			 putchar('\n');
+		     break;
 		 default:
             printf(" Set unknown:");
 		    hexdump_raw(buf, len);
@@ -646,17 +662,29 @@ main(int argc, const char *argv[])
 		 case '6':
 		    if (debug)
 		       printf(" -> powerful ('F6') %d\n", state->powerful);
-		    response[3] = state->powerful ? '2' : '0';
-			response[4] = 0x30;
-			response[5] = 0x30;
-			response[6] = 0x30;
-
+			response[S21_PAYLOAD_OFFSET] = '0'; // Powerful, comfort, quiet
+			response[S21_PAYLOAD_OFFSET + 1] = '0'; // Streamer
+			response[S21_PAYLOAD_OFFSET + 2] = '0'; // Reserved ?
+			response[S21_PAYLOAD_OFFSET + 3] = '0'; // Sensor, LED
+			if (state->powerful)
+		       response[S21_PAYLOAD_OFFSET] |= 0x02;
+			if (state->comfort)
+			   response[S21_PAYLOAD_OFFSET] |= 0x40;
+            if (state->quiet)
+			   response[S21_PAYLOAD_OFFSET] |= 0x80;
+			if (state->streamer)
+				response[S21_PAYLOAD_OFFSET + 1] |= 0x80;
+			if (state->sensor)
+				response[S21_PAYLOAD_OFFSET + 3] |= 0x08;
+			if (state->led)
+				response[S21_PAYLOAD_OFFSET + 3] |= 0x0C;
+			
 			s21_reply(p, response, buf, S21_PAYLOAD_LEN);
 			break;
 		 case '7':
 		    if (debug)
-		       printf(" -> eco %d\n", state->eco);
-		    response[3] = 0x30;
+		       printf(" -> demand %d eco %d\n", state->demand, state->eco);
+		    response[3] = 0x30 + state->demand;
 			response[4] = state->eco ? '2' : '0';
 			response[5] = 0x30;
 			response[6] = 0x30;
