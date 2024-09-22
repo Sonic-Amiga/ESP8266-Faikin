@@ -626,7 +626,8 @@ main(int argc, const char *argv[])
 			//   is reported as 1.
 			// byte 1:
 			// - bit 3: 0 => type=C, 1 => type=N - unknown
-			// byte 2: Zero value, perhaps not used
+			// byte 2:
+			// - bit 7: Becomes 1 after DJ command is issued
 			// byte 3: Something about humidity sensor, complicated:
 			// - bit 1: humd=<bool> - "Humidify" operation mode is available
 			// - bit 4: Humidity setting is available for "heat" and "auto" modes
@@ -640,8 +641,8 @@ main(int argc, const char *argv[])
 			unknown_cmd(p, response, buf, state->F2, S21_PAYLOAD_LEN);
 			break;
 		 case '3':
-		 	// Faikin treats byte[3] of payload as "powerful" flag, alternative to F6,
-			// but that's not true, at least on ATX20K2V1B and FTXF20D5.
+		 	// Actually on/off timer. Still part of the profile because we may be
+			// interested in byte 3; and also default values are different per unit.
 		 	unknown_cmd(p, response, buf, state->F3, S21_PAYLOAD_LEN);
 			break;
 		 case '4':
