@@ -2148,7 +2148,9 @@ legacy_get_basic_info (void)
    jo_string (j, "type", "aircon");
    jo_string (j, "reg", region);
    jo_int (j, "dst", tm.tm_isdst);      // Guess
-   jo_string (j, "ver", revk_version);
+   // ver= is omitted, otherwise the app will check version number against bundled firmware
+   // and won't let us proceed until an upgrade is performed :) Missing ver= key causes the
+   // app to skip the check. Supplying random crap causes the app to crash.
    jo_string (j, "rev", revk_version);
    jo_int (j, "pow", daikin.power);
    jo_int (j, "err", 1 - daikin.online);
@@ -2160,12 +2162,15 @@ legacy_get_basic_info (void)
    jo_string (j, "id", "");
    jo_string (j, "pw", "");
    jo_int (j, "lpw_flag", 0);
-   jo_int (j, "adp_kind", 0);   // Controller HW type, for firmware update. We pretend to be GainSpan.
+   // Controller HW type. We have to choose from supported values, ofherwise
+   // the app ignores us. Let's pretend to be BRP069 family (Marvell).
+   jo_int (j, "adp_kind", 3);
    jo_protocol_version (j);
    jo_int (j, "led", 1);        // Our LED is always on
    jo_int (j, "en_setzone", 0); // ??
    jo_string (j, "mac", revk_id);
    jo_string (j, "adp_mode", "run");    // Required for Daikin apps to see us
+   jo_int (j, "en_hol", 0); // No holiday mode
    jo_string (j, "ssid", "");   // SSID in AP mode
    jo_string (j, "ssid1", revk_wifi ());        // SSID in client mode
    jo_string (j, "grp_name", "");
@@ -3143,9 +3148,23 @@ app_main ()
    {                            // Mock for interface development and testing
       ESP_LOGE (TAG, "Dummy operational mode (no tx/rx set)");
       daikin.status_known |=
-         CONTROL_power | CONTROL_fan | CONTROL_temp | CONTROL_mode | CONTROL_econo | CONTROL_powerful |
-         CONTROL_comfort | CONTROL_streamer | CONTROL_sensor | CONTROL_quiet | CONTROL_swingv | CONTROL_swingh |
-         CONTROL_demand;
+         CONTROL_power | CONTROL_fan | CONTROL_temp | CONTROL_mode | CONTROL_econo;
+      if (!nopowerful)
+          daikin.status_known |= CONTROL_powerful;
+      if (!nocomfort)
+         daikin.status_known |= CONTROL_comfort;
+      if (!nostreamer) 
+         daikin.status_known |= CONTROL_streamer;
+      if (!nosensor)
+         daikin.status_known |= CONTROL_sensor;
+      if (!noquiet)
+         daikin.status_known |= CONTROL_quiet;
+      if (!noswingw)
+         daikin.status_known |= CONTROL_swingv;
+      if (!noswingh) 
+         daikin.status_known |= CONTROL_swingh;
+      if (!nodemand)
+         daikin.status_known |= CONTROL_demand;
       daikin.power = 1;
       daikin.mode = 1;
       daikin.temp = 20.0;
