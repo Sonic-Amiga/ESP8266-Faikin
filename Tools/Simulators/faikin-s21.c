@@ -805,20 +805,16 @@ main(int argc, const char *argv[])
 		 	send_int(p, response, buf, state->comprpm, "compressor rpm");
 			break;
 	     case 'N':
-		 	// These two are queried by BRP069B41, at least for protocol version 1, but we have no idea
-			// what they mean. Not found anywhere in controller's http responses. We're replying with
-			// some distinct values for possible identification in case if they pop up somewhere.
-			// The following is what my FTX20D returns, also with known commands from above, for comparison:
-			// {"protocol":"S21","dump":"0253483035322B5D03","SH":"052+"} - home
-			// {"protocol":"S21","dump":"0253493535322B6303","SI":"552+"} - inlet
-			// {"protocol":"S21","dump":"0253613035312B7503","Sa":"051+"} - outside
-			// {"protocol":"S21","dump":"02534E3532312B6403","SN":"521+"} - ???
-			// {"protocol":"S21","dump":"0253583033322B6B03","SX":"032+"} - ???
-			// This one is reported in /aircon/get_monitordata as trtmp=
+            // Target temperature. Reported in /aircon/get_monitordata as trtmp=
+			// The temperature the indoor unit is actually trying to match, accounts
+			// for any powerful mode or intelligent eye modifiers or similar.
+			// Heuristics are detailled in service manuals:
+			// https://www.daikinac.com/content/assets/DOC/ServiceManuals/SiUS091133-FTXS-LFDXS-L-Inverter-Pair-Service-Manual.pdf#page=38
 		    send_temp(p, response, buf, 235, "unknown ('RN')");
 		    break;
 	     case 'X':
-		    // This one is reported in /aircon/get_monitordata as fangl=
+		    // According to https://github.com/revk/ESP32-Faikin/issues/408#issue-2437817696,
+			// louver vertical angle. Reported in /aircon/get_monitordata as fangl=
 		    send_temp(p, response, buf, 215, "unknown ('RX')");
 		    break;
 		 default:
