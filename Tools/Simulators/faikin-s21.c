@@ -841,6 +841,7 @@ main(int argc, const char *argv[])
 			// but so far i was unable to get the controller reading it. Looks like something else
 			// is missing, some feature bits, we don't know which ones.
 		 	send_int(p, response, buf, state->hum_sensor, "indoor humidity");
+			break;
 	     case 'N':
             // Target temperature. Reported in /aircon/get_monitordata as trtmp=
 			// The temperature the indoor unit is actually trying to match, accounts
