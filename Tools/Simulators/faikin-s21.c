@@ -759,8 +759,8 @@ main(int argc, const char *argv[])
 			// byte 0:
 			// - bit 2: acled=<bool>. LED control available ?
 			// - bit 3: land=<bool>
-			// - bit 6: When set to 0, atlmt_l=0,atlmt_h=0 parameters are displayed by the controller. 1 = hidden
-			//          Only for protocol v3; ignored on lower versions
+			// - bit 6: disable en_rtemp_a, i. e. en_rtemp_a=!bit. Only for protocol v3; ignored on lower versions
+			//          When set to 0 (enabled), atlmt_l=0,atlmt_h=0 parameters are also displayed by the controller.
 			// byte 1:
 			// - bit 0: elec=<bool>
 			// - bit 2: temp_rng=<bool>
