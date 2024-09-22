@@ -208,6 +208,7 @@ void state_options_help(void)
            " fan <integer> - Fan speed: 0 = auto, 1-5 = set speed, 6 = quiet\n");
     enum_option("humidity", "Humidity setting", humidity);
     printf(" temp <float> - Target temperature in C\n"
+           " hum_sensor <int> - Reported indoor humidity\n"
            " fanrpm <int> - Fan rpm (divided by 10)\n"
 	       " comprpm <int> - Compressor rpm\n"
 	       " protocol <major>.<minor> - Reported protocol version. Major and minor are 2 digits max.\n"
@@ -260,6 +261,8 @@ int parse_item(int argc, const char **argv, struct S21State *state)
         return parse_enum(argc, argv, &state->humidity, humidity);
     } else if (!strcmp(opt, "temp")) {
         return parse_float(argc, argv, &state->temp);
+    } else if (!strcmp(opt, "hum_sensor")) {
+        return parse_int(argc, argv, &state->hum_sensor);
     } else if (!strcmp(opt, "comprpm")) {
         return parse_int(argc, argv, &state->comprpm);
     } else if (!strcmp(opt, "protocol"))  {

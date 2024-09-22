@@ -28,6 +28,7 @@ static struct S21State init_state = {
    .temp     = 22.5, // Set point
    .fan      = 3,    // Fan speed
    .swing    = 0,    // Swing direction
+   .humidity = 0x30, // Humidity setting
    .powerful = 0,    // Powerful mode
    .comfort  = 0,    // Comfort mode
    .quiet    = 0,    // Quiet mode
@@ -39,6 +40,7 @@ static struct S21State init_state = {
    .home     = 245,  // Reported temparatures (multiplied by 10 here)
    .outside  = 205,
    .inlet    = 185,
+   .hum_sensor = 50, // Humidity sensor value
    .fanrpm   = 52,   // Fan RPM (divided by 10 here)
    .comprpm  = 42,   // Compressor RPM
    .consumption = 2, // Power consumption in 100 Wh units
@@ -832,6 +834,12 @@ main(int argc, const char *argv[])
 		 case 'd':
 		 	send_int(p, response, buf, state->comprpm, "compressor rpm");
 			break;
+		 case 'e':
+		    // Indoor humidity sensor. Known to report 50% if the sensor is not present in the A/C.
+			// BRP069B41 should support it (it has hhum= parameter in /aircom/get_sensor_info),
+			// but so far i was unable to get the controller reading it. Looks like something else
+			// is missing, some feature bits, we don't know which ones.
+		 	send_int(p, response, buf, state->hum_sensor, "indoor humidity");
 	     case 'N':
             // Target temperature. Reported in /aircon/get_monitordata as trtmp=
 			// The temperature the indoor unit is actually trying to match, accounts

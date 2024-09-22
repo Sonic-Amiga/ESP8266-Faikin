@@ -17,6 +17,7 @@ struct S21State
     int          home;     // Reported temparatures (multiplied by 10 here)
     int          outside;
     int          inlet;
+    int          hum_sensor; // Humidity sensor value
     unsigned int  fanrpm;         // Fan RPM (divided by 10 here)
     unsigned int  comprpm;        // Compressor RPM
     unsigned int  consumption;    // Power consumption
