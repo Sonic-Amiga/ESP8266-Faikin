@@ -54,7 +54,7 @@ static struct S21State init_state = {
    .F4       = {0x30, 0x00, 0x80, 0x30},
    .FB       = {0x30, 0x33, 0x36, 0x30}, // 0630
    .FG       = {0x30, 0x34, 0x30, 0x30}, // 0040
-   .FK       = {0x3D, 0x73, 0x35, 0x31}, // Modified: acled=1,land=1,en_rtemp_a=1
+   .FK       = {0x3D, 0x7B, 0x35, 0x31}, // Modified: acled=1,land=1,en_rtemp_a=1,m_dtct=1
    .FN       = {0x30, 0x30, 0x30, 0x30}, // 0000
    .FP       = {0x37, 0x33, 0x30, 0x30}, // 0037
    .FQ       = {0x45, 0x33, 0x30, 0x30}, // 003E
@@ -767,7 +767,7 @@ main(int argc, const char *argv[])
 			// byte 1:
 			// - bit 0: elec=<bool>
 			// - bit 2: temp_rng=<bool>
-			// - bit 3: m_dtct 0=<bool>. Supposedly "human presence detector AKA "intelligent eye(tm) is available"
+			// - bit 3: m_dtct=<bool>. Motion detector AKA "intelligent eye(tm): is available
 			// byte 2:
 			// - bit 0: Japanese market ?? But we don't know a real difference
 			//   0 -> ac_dst=jp
