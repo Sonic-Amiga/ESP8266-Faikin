@@ -1,5 +1,6 @@
 # Contributed by nikbyte: https://github.com/revk/ESP32-Faikin/issues/342#issuecomment-2366988154
-# Has "Intelligent eye"(tm)
+# Interesting features: "Intelligent eye"(tm), "Quiet outdoors unit", "Stylish visor"
+# (all supported by Onecta with new cloud-only controller)
 protocol 3.40
 model 1765
 F2 0x3C 0x3B 0x00 0x80
