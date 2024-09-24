@@ -606,6 +606,9 @@ main(int argc, const char *argv[])
 		   case '7':
 			  unknown_v3_cmd(p, response, buf, state->FX70, sizeof(state->FX70));
 			  break;
+		   case '8':
+			  unknown_v3_cmd(p, response, buf, state->FX80, sizeof(state->FX80));
+			  break;
 		   case '9':
 			  unknown_v3_cmd(p, response, buf, state->FX90, sizeof(state->FX90));
 			  break;

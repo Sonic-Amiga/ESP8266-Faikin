@@ -54,6 +54,7 @@ struct S21State
     unsigned char FX50[2];
     unsigned char FX60[4];
     unsigned char FX70[4];
+    unsigned char FX80[4];
     unsigned char FX90[4];
     unsigned char FXA0[4];
     unsigned char FXB0[2];

@@ -243,6 +243,7 @@ void state_options_help(void)
     RAW_OPTION(FX50);
     RAW_OPTION(FX60);
     RAW_OPTION(FX70);
+    RAW_OPTION(FX80);
     RAW_OPTION(FX90);
     RAW_OPTION(FXA0);
     RAW_OPTION(FXB0);
@@ -314,6 +315,7 @@ int parse_item(int argc, const char **argv, struct S21State *state)
     PARSE_RAW(FX50)
     PARSE_RAW(FX60)
     PARSE_RAW(FX70)
+    PARSE_RAW(FX80)
     PARSE_RAW(FX90)
     PARSE_RAW(FXA0)
     PARSE_RAW(FXB0)
