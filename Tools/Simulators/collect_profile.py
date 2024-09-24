@@ -71,13 +71,12 @@ def parse_response(hex_str):
     else:
         data[1] = data[1] - 1
         cmd = data[1:3].decode("ascii")
-        if cmd == 'FU' or cmd == 'FY':
+        if cmd == 'FU' or cmd == 'FX' or cmd == 'FY':
             # These commands are 4-char long
             cmd = data[1:5].decode("ascii")
         payload_offset = 1 + len(cmd)
 
     if cmd != commands[cmd_index - 1]:
-        print("Bad reply", cmd, "vs", commands[cmd_index - 1])
         return False; # Response to something else, ignore
 
     payload = data[payload_offset:-2]

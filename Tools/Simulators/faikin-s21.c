@@ -72,7 +72,19 @@ static struct S21State init_state = {
    .FU04     = {0x36, 0x43, 0x37, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, // 00000000000007C6
                 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
    .FY10     = {'A', '8', 'D', '3', '6', '6', '6', 'F'},
-   .FY20     = {'E', '4', '0', '2'}
+   .FY20     = {'E', '4', '0', '2'},
+   .FX00     = {'A', '2'},
+   .FX10     = {'7', '6'},
+   .FX20     = {'0', '0', '0', '0'},
+   .FX30     = {'0', '0'},
+   .FX40     = {'0', '4'},
+   .FX50     = {'0', '0'},
+   .FX60     = {'0', '0', '0', '0'},
+   .FX70     = {'0', '9', '1', '0'},
+   .FX90     = {'F', 'F', 'F', 'F'},
+   .FXA0     = {'A', '0', '4', '7'},
+   .FXB0     = {'0', '0'},
+   .FXC0     = {'0', '0'}
 };
 
 static void usage(const char *progname)
@@ -566,6 +578,50 @@ main(int argc, const char *argv[])
 			s21_nak(p, buf, len);
 			continue;
 		}
+	    } else if (state->protocol_major > 2 && len >= S21_MIN_V3_PKT_LEN &&
+	               buf[S21_CMD0_OFFSET] == 'F' && buf[S21_CMD1_OFFSET] == 'X' && buf[S21_V3_CMD3_OFFSET] == '0') {
+		   switch (buf[S21_V3_CMD2_OFFSET])
+		   {
+		   case '0':
+			  unknown_v3_cmd(p, response, buf, state->FX00, sizeof(state->FX00));
+			  break;
+		   case '1':
+			  unknown_v3_cmd(p, response, buf, state->FX10, sizeof(state->FX10));
+			  break;
+		   case '2':
+			  unknown_v3_cmd(p, response, buf, state->FX20, sizeof(state->FX20));
+			  break;
+		   case '3':
+			  unknown_v3_cmd(p, response, buf, state->FX30, sizeof(state->FX30));
+			  break;
+		   case '4':
+			  unknown_v3_cmd(p, response, buf, state->FX40, sizeof(state->FX40));
+			  break;
+		   case '5':
+			  unknown_v3_cmd(p, response, buf, state->FX50, sizeof(state->FX50));
+			  break;
+		   case '6':
+			  unknown_v3_cmd(p, response, buf, state->FX60, sizeof(state->FX60));
+			  break;
+		   case '7':
+			  unknown_v3_cmd(p, response, buf, state->FX70, sizeof(state->FX70));
+			  break;
+		   case '9':
+			  unknown_v3_cmd(p, response, buf, state->FX90, sizeof(state->FX90));
+			  break;
+		   case 'A':
+			  unknown_v3_cmd(p, response, buf, state->FXA0, sizeof(state->FXA0));
+			  break;
+		   case 'B':
+			  unknown_v3_cmd(p, response, buf, state->FXB0, sizeof(state->FXB0));
+			  break;
+		   case 'C':
+			  unknown_v3_cmd(p, response, buf, state->FXC0, sizeof(state->FXC0));
+			  break;
+		   default:
+			  s21_nak(p, buf, len);
+			  continue;;
+		   }
 	  } else if (len >= S21_FRAMING_LEN + 6 && !memcmp(&buf[S21_CMD0_OFFSET], "VS000M", 6)) {
 		 // This is sent by BRP069B41 for protocol v3. Note non-standard response form
 		 // (no first byte increment). Purpose is currently unknown.
