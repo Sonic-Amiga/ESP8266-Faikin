@@ -32,6 +32,7 @@ typedef struct poll_s
 } poll_t;
 struct
 {                               // Status of S21 messages that get a valid response - this is a count of NAKs, so 0 means working...
+   poll_t FY00;
    poll_t F1;
    poll_t F2;
    poll_t F3;
@@ -284,7 +285,8 @@ struct
    uint8_t hysteresis:1;        // Thermostat hysteresis state
    uint8_t cnresend:2;          // Resends
    uint8_t action:3;            // hvac_action
-   uint8_t protocol_ver;        // Protocol version
+   uint8_t protocol_major;      // Protocol version
+   uint8_t protocol_minor;
 } daikin = { 0 };
 
 enum
@@ -463,7 +465,7 @@ enum
 };
 
 static int
-check_length (uint8_t cmd, uint8_t cmd2, int len, int required, const uint8_t * payload)
+check_length (const uint8_t * cmd, int cmd_len, int len, int required, const uint8_t * payload)
 {
    if (len >= required)
       return 1;
@@ -471,7 +473,7 @@ check_length (uint8_t cmd, uint8_t cmd2, int len, int required, const uint8_t * 
    jo_t j = jo_comms_alloc ();
    jo_stringf (j, "badlength", "%d", len);
    jo_stringf (j, "expected", "%d", required);
-   jo_stringf (j, "command", "%c%c", cmd, cmd2);
+   jo_stringn (j, "command", (const char *)cmd, cmd_len);
    jo_base16 (j, "data", payload, len);
    revk_error ("comms", &j);
 
@@ -499,10 +501,32 @@ comm_badcrc (uint8_t c, const uint8_t * buf, int rxlen)
    revk_error ("comms", &j);
 }
 
+static int
+daikin_s21_v3_response (const uint8_t * cmd_buf, int len, uint8_t * payload)
+{
+   if (cmd_buf[0] == 'G' && cmd_buf[1] == 'Y' && cmd_buf[3] == '0')
+   {
+      switch (cmd_buf[2])
+      {
+      case '0': // GY00 - protocol version, v3+
+         if (check_length (cmd_buf, S21_V3_COMMAND_LEN, len, S21_PAYLOAD_LEN, payload)) {
+            daikin.protocol_major = (payload[2] & S21_SHIELD_MASK) + (payload[3] & S21_SHIELD_MASK) * 10;
+            daikin.protocol_minor = (payload[0] & S21_SHIELD_MASK) + (payload[1] & S21_SHIELD_MASK) * 10;
+         }
+         break;
+      }
+   }
+
+   return RES_OK;
+}
+
 // Decode S21 response payload
 int
-daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
+daikin_s21_response (const uint8_t * cmd_buf, int len, uint8_t * payload)
 {
+   uint8_t cmd = cmd_buf[0];
+   uint8_t cmd2 = cmd_buf[1];
+
    if (len >= 1 && s21debug)
    {
       char tag[3] = { cmd, cmd2 };
@@ -516,7 +540,7 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
       switch (cmd2)
       {
       case '1':                // 'G1' - basic status
-         if (check_length (cmd, cmd2, len, S21_PAYLOAD_LEN, payload))
+         if (check_length (cmd_buf, S21_COMMAND_LEN, len, S21_PAYLOAD_LEN, payload))
          {
             report_uint8 (online, 1);
             report_bool (power, payload[0] == '1');
@@ -540,13 +564,13 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
       case '3':                // Seems to be an alternative to G6
          // If F6 is supported, F3 does not provide "powerful" flag even if supported.
          // We may still get G3 response for debug or from injection via MQTT "send".
-         if (s21.F6.bad && check_length (cmd, cmd2, len, 1, payload))
+         if (s21.F6.bad && check_length (cmd_buf, S21_COMMAND_LEN, len, 1, payload))
          {
             report_bool (powerful, payload[3] & 0x02);
          }
          break;
       case '5':                // 'G5' - swing status
-         if (check_length (cmd, cmd2, len, 1, payload))
+         if (check_length (cmd_buf, S21_COMMAND_LEN, len, 1, payload))
          {
             if (!noswingw)
                report_bool (swingv, payload[0] & 1);
@@ -555,7 +579,7 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
          }
          break;
       case '6':                // 'G6' - "powerful" mode and some others
-         if (check_length (cmd, cmd2, len, S21_PAYLOAD_LEN, payload))
+         if (check_length (cmd_buf, S21_COMMAND_LEN, len, S21_PAYLOAD_LEN, payload))
          {
             if (!nopowerful)
                report_bool (powerful, payload[0] & 0x02);
@@ -572,7 +596,7 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
          }
          break;
       case '7':                // 'G7' - "demand" and "eco" mode
-         if (check_length (cmd, cmd2, len, 2, payload))
+         if (check_length (cmd_buf, S21_COMMAND_LEN, len, 2, payload))
          {
             if (!nodemand && payload[0] != '1')
                report_int (demand, 100 - (payload[0] - '0'));
@@ -580,13 +604,13 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
          }
          break;
       case '8':
-         if (check_length (cmd, cmd2, len, 2, payload))
+         if (check_length (cmd_buf, S21_COMMAND_LEN, len, 2, payload))
          {
-            daikin.protocol_ver = payload[1] & (~0x30);
+            daikin.protocol_major = payload[1] & (~0x30);
          }
          break;
       case '9':
-         if (check_length (cmd, cmd2, len, 2, payload))
+         if (check_length (cmd_buf, S21_COMMAND_LEN, len, 2, payload))
          {
             report_float (home, (float) ((signed) payload[0] - 0x80) / 2);
             report_float (outside, (float) ((signed) payload[1] - 0x80) / 2);
@@ -606,12 +630,20 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
       case 'M':                // Power meter
          report_int (Wh, s21_decode_hex_sensor (payload) * 100);        // 100Wh units
          break;
+      case 'Y':
+      case 'U':
+         if (check_length (cmd_buf, S21_COMMAND_LEN, len, 2, payload))
+         {
+            // These are known v3 responses, command length = 4
+            return daikin_s21_v3_response (cmd_buf, len - 2, payload + 2);
+         }
+         break;
       }
    if (cmd == 'S')
    {
       if (cmd2 == 'G')
       {
-         if (check_length (cmd, cmd2, len, 1, payload))
+         if (check_length (cmd_buf, S21_COMMAND_LEN, len, 1, payload))
          {                      // One byte response!
             switch (cmd2)
             {
@@ -632,7 +664,7 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
          }
       } else if (cmd2 == 'L' || cmd2 == 'd' || cmd2 == 'D' || cmd2 == 'N' || cmd2 == 'M')
       {                         // These responses are always only 3 bytes long
-         if (check_length (cmd, cmd2, len, 3, payload))
+         if (check_length (cmd_buf, S21_COMMAND_LEN, len, 3, payload))
          {
             int v = s21_decode_int_sensor (payload);
             switch (cmd2)
@@ -648,7 +680,7 @@ daikin_s21_response (uint8_t cmd, uint8_t cmd2, int len, uint8_t * payload)
                break;
             }
          }
-      } else if (check_length (cmd, cmd2, len, S21_PAYLOAD_LEN, payload))
+      } else if (check_length (cmd_buf, S21_COMMAND_LEN, len, S21_PAYLOAD_LEN, payload))
       {
          float t = s21_decode_float_sensor (payload);
 
@@ -1216,7 +1248,7 @@ daikin_s21_command (uint8_t cmd, uint8_t cmd2, int payload_len, char *payload)
          jo_bool (j, "mismatch", 1);
       return s21_bad (j);
    }
-   return daikin_s21_response (buf[S21_CMD0_OFFSET], buf[S21_CMD1_OFFSET], rxlen - S21_MIN_PKT_LEN, buf + S21_PAYLOAD_OFFSET);
+   return daikin_s21_response (buf + S21_CMD0_OFFSET, rxlen - S21_MIN_PKT_LEN, buf + S21_PAYLOAD_OFFSET);
 }
 
 void
@@ -2133,7 +2165,10 @@ legacy_web_set_demand_control (httpd_req_t * req)
 static void
 jo_protocol_version (jo_t j)
 {
-   jo_int (j, "pv", daikin.protocol_ver);       //Conditioner protocol version
+   if (daikin.protocol_minor)       //Conditioner protocol version
+      jo_stringf (j, "pv", "%d.%02d", daikin.protocol_major, daikin.protocol_minor);
+   else
+      jo_int (j, "pv", daikin.protocol_major);
    jo_int (j, "cpv", 3);        // Controller protocol version 
    jo_string (j, "cpv_minor", "20");    //
 }
@@ -3337,6 +3372,8 @@ app_main ()
       	    s21.a##b##d.ack=s21.a##b##d.nak=s21.a##b##d.bad=0;\
     } while(0)
 
+               if (!s21.FY00.ack && !s21.F8.ack)
+                  poll (F, Y, 2, 00);  // One time static value
                poll (F, 1, 0,);
                if (debug)
                   poll (F, 2, 0,);
@@ -3347,7 +3384,7 @@ app_main ()
                poll (F, 5, 0,);
                poll (F, 6, 0,);
                poll (F, 7, 0,);
-               if (!s21.F8.ack)
+               if (!s21.FY00.ack && !s21.F8.ack)
                   poll (F, 8, 0,);      // One time static value
                poll (F, 9, 0,);
                if (debug)

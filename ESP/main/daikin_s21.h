@@ -20,16 +20,22 @@
 
 // Length of a framing (STX + CRC + ETX)
 #define S21_FRAMING_LEN 3
+// A typical command length
+#define S21_COMMAND_LEN 2
 // A typical payload length, but there are deviations
 #define S21_PAYLOAD_LEN 4
 // A minimum length of a packet (with no payload): framing + CMD0 + CMD1
-#define S21_MIN_PKT_LEN (S21_FRAMING_LEN + 2)
+#define S21_MIN_PKT_LEN (S21_FRAMING_LEN + S21_COMMAND_LEN)
 
 // v3 packets use 4-character command codes
+#define S21_V3_COMMAND_LEN 4
 #define S21_V3_CMD2_OFFSET 3
 #define S21_V3_CMD3_OFFSET 4
 #define S21_V3_PAYLOAD_OFFSET 5
-#define S21_MIN_V3_PKT_LEN (S21_FRAMING_LEN + 4)
+#define S21_MIN_V3_PKT_LEN (S21_FRAMING_LEN + S21_V3_COMMAND_LEN)
+
+// Shield bits mask (typical)
+#define S21_SHIELD_MASK (~0x30)
 
 // Encoding for minimum target temperature value, correspond to 18 deg.C.
 #define AC_MIN_TEMP_VALUE '@'
