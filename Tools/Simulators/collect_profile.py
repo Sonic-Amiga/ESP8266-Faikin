@@ -18,7 +18,7 @@ commands = [
     # Discovered by analyzing v3 protocol, but at least v2 A/Cs also have it
     "VS000M",
     # v3 extended commands
-    "FY00", "FY10", "FY20", "FU00", "FU02", "FU04",
+    "FY00", "FY10", "FY20", "FU00", "FU02", "FU04", "FU05", "FU06", "FU07", "FU08", "FU09",
     "FX00", "FX10", "FX20", "FX30", "FX40", "FX50", "FX60", "FX70", "FX80", "FX90", "FXA0", "FXB0", "FXC0"
 ]
 cmd_index = 0
