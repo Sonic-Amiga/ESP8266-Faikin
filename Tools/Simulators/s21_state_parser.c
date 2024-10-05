@@ -247,6 +247,7 @@ void state_options_help(void)
     RAW_OPTION(FU00);
     RAW_OPTION(FU02);
     RAW_OPTION(FU04);
+    RAW_OPTION(FU05);
     RAW_OPTION(FY10);
     RAW_OPTION(FY20);
     RAW_OPTION(FX00);
@@ -331,6 +332,7 @@ int parse_item(int argc, const char **argv, struct S21State *state)
     PARSE_RAW(FU00)
     PARSE_RAW(FU02)
     PARSE_RAW(FU04)
+    PARSE_RAW(FU05)
     PARSE_RAW(FY10)
     PARSE_RAW(FY20)
     PARSE_RAW(FX00)

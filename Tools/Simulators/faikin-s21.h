@@ -44,6 +44,7 @@ struct S21State
     unsigned char FU00[32];
     unsigned char FU02[32];
     unsigned char FU04[32];
+    unsigned char FU05[32];
     unsigned char FY10[8];
     unsigned char FY20[4];
     unsigned char FX00[2];
