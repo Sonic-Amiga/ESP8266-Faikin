@@ -94,7 +94,20 @@ static struct S21State init_state = {
    .FX90     = {'F', 'F', 'F', 'F'},
    .FXA0     = {'A', '0', '4', '7'},
    .FXB0     = {'0', '0'},
-   .FXC0     = {'0', '0'}
+   // FXC0 and beyond are v3.40 commands; contents taken from FTXA35CV21B
+   .FXC0     = {'0', '0'},
+   .FXD0     = {'0', '0', '0', '0', '0', '0', '0', '0'},
+   .FXE0     = {'0', '0', '0', '0', '0', '0', '0', '0'},
+   .FXF0     = {'0', '0', '0', '0', '0', '0', '0', '0'},
+   .FX01     = {'0', '0', '0', '0', '0', '0', '0', '0'},
+   .FX11     = {'0', '0', '0', '0', '0', '0', '0', '0'},
+   .FX21     = {'3', '0'},
+   .FX31     = {'0', '0', '0', '0', '0', '0', '0', '0'},
+   .FX41     = {'0', '0', '0', '0', '1', '0', '0', '0'},
+   .FX51     = {'0', '0', '0', '0'},
+   .FX61     = {'C', '6'},
+   .FX71     = {'0', '0'},
+   .FX81     = {'2', '0'},
 };
 
 static void usage(const char *progname)
@@ -613,53 +626,99 @@ main(int argc, const char *argv[])
 			s21_nak(p, buf, len);
 			continue;
 		}
-	    } else if (state->protocol_major > 2 && len >= S21_MIN_V3_PKT_LEN &&
-	               buf[S21_CMD0_OFFSET] == 'F' && buf[S21_CMD1_OFFSET] == 'X' && buf[S21_V3_CMD3_OFFSET] == '0') {
-		   switch (buf[S21_V3_CMD2_OFFSET])
-		   {
-		   case '0':
-			  unknown_v3_cmd(p, response, buf, state->FX00, sizeof(state->FX00));
-			  break;
-		   case '1':
-			  unknown_v3_cmd(p, response, buf, state->FX10, sizeof(state->FX10));
-			  break;
-		   case '2':
-			  unknown_v3_cmd(p, response, buf, state->FX20, sizeof(state->FX20));
-			  break;
-		   case '3':
-			  unknown_v3_cmd(p, response, buf, state->FX30, sizeof(state->FX30));
-			  break;
-		   case '4':
-			  unknown_v3_cmd(p, response, buf, state->FX40, sizeof(state->FX40));
-			  break;
-		   case '5':
-			  unknown_v3_cmd(p, response, buf, state->FX50, sizeof(state->FX50));
-			  break;
-		   case '6':
-			  unknown_v3_cmd(p, response, buf, state->FX60, sizeof(state->FX60));
-			  break;
-		   case '7':
-			  unknown_v3_cmd(p, response, buf, state->FX70, sizeof(state->FX70));
-			  break;
-		   case '8':
-			  unknown_v3_cmd(p, response, buf, state->FX80, sizeof(state->FX80));
-			  break;
-		   case '9':
-			  unknown_v3_cmd(p, response, buf, state->FX90, sizeof(state->FX90));
-			  break;
-		   case 'A':
-			  unknown_v3_cmd(p, response, buf, state->FXA0, sizeof(state->FXA0));
-			  break;
-		   case 'B':
-			  unknown_v3_cmd(p, response, buf, state->FXB0, sizeof(state->FXB0));
-			  break;
-		   case 'C':
-			  unknown_v3_cmd(p, response, buf, state->FXC0, sizeof(state->FXC0));
-			  break;
-		   default:
-			  s21_nak(p, buf, len);
-			  continue;;
-		   }
+	  } else if (state->protocol_major > 2 && len >= S21_MIN_V3_PKT_LEN &&
+	             buf[S21_CMD0_OFFSET] == 'F' && buf[S21_CMD1_OFFSET] == 'X' && buf[S21_V3_CMD3_OFFSET] == '0') {
+		 // FXx0
+	     switch (buf[S21_V3_CMD2_OFFSET])
+		 {
+		 case '0':
+			unknown_v3_cmd(p, response, buf, state->FX00, sizeof(state->FX00));
+			break;
+		 case '1':
+		    unknown_v3_cmd(p, response, buf, state->FX10, sizeof(state->FX10));
+		    break;
+		 case '2':
+			unknown_v3_cmd(p, response, buf, state->FX20, sizeof(state->FX20));
+			break;
+		 case '3':
+			unknown_v3_cmd(p, response, buf, state->FX30, sizeof(state->FX30));
+			break;
+		 case '4':
+			unknown_v3_cmd(p, response, buf, state->FX40, sizeof(state->FX40));
+			break;
+		 case '5':
+			unknown_v3_cmd(p, response, buf, state->FX50, sizeof(state->FX50));
+			break;
+		 case '6':
+			unknown_v3_cmd(p, response, buf, state->FX60, sizeof(state->FX60));
+			break;
+		 case '7':
+			unknown_v3_cmd(p, response, buf, state->FX70, sizeof(state->FX70));
+			break;
+		 case '8':
+			unknown_v3_cmd(p, response, buf, state->FX80, sizeof(state->FX80));
+			break;
+		 case '9':
+			unknown_v3_cmd(p, response, buf, state->FX90, sizeof(state->FX90));
+			break;
+		 case 'A':
+			unknown_v3_cmd(p, response, buf, state->FXA0, sizeof(state->FXA0));
+			break;
+		 case 'B':
+			unknown_v3_cmd(p, response, buf, state->FXB0, sizeof(state->FXB0));
+			break;
+		 case 'C':
+			unknown_v3_cmd(p, response, buf, state->FXC0, sizeof(state->FXC0));
+			break;
+		 case 'D':
+			unknown_v3_cmd(p, response, buf, state->FXD0, sizeof(state->FXD0));
+			break;
+		 case 'E':
+			unknown_v3_cmd(p, response, buf, state->FXE0, sizeof(state->FXE0));
+			break;
+		 case 'F':
+			unknown_v3_cmd(p, response, buf, state->FXF0, sizeof(state->FXF0));
+			break;
+		 default:
+			s21_nak(p, buf, len);
+		    continue;;
+		 }
+	  } else if (state->protocol_major > 2 && len >= S21_MIN_V3_PKT_LEN &&
+	             buf[S21_CMD0_OFFSET] == 'F' && buf[S21_CMD1_OFFSET] == 'X' && buf[S21_V3_CMD3_OFFSET] == '1') {
+		 // FXx1
+	     switch (buf[S21_V3_CMD2_OFFSET])
+		 {
+		 case '0':
+			unknown_v3_cmd(p, response, buf, state->FX01, sizeof(state->FX01));
+			break;
+		 case '1':
+		    unknown_v3_cmd(p, response, buf, state->FX11, sizeof(state->FX11));
+		    break;
+		 case '2':
+			unknown_v3_cmd(p, response, buf, state->FX21, sizeof(state->FX21));
+			break;
+		 case '3':
+			unknown_v3_cmd(p, response, buf, state->FX31, sizeof(state->FX31));
+			break;
+		 case '4':
+			unknown_v3_cmd(p, response, buf, state->FX41, sizeof(state->FX41));
+			break;
+		 case '5':
+			unknown_v3_cmd(p, response, buf, state->FX51, sizeof(state->FX51));
+			break;
+		 case '6':
+			unknown_v3_cmd(p, response, buf, state->FX61, sizeof(state->FX61));
+			break;
+		 case '7':
+			unknown_v3_cmd(p, response, buf, state->FX71, sizeof(state->FX71));
+			break;
+		 case '8':
+			unknown_v3_cmd(p, response, buf, state->FX81, sizeof(state->FX81));
+			break;
+		 default:
+			s21_nak(p, buf, len);
+		    continue;
+		 }
 	  } else if (len >= S21_FRAMING_LEN + 6 && !memcmp(&buf[S21_CMD0_OFFSET], "VS000M", 6)) {
 		 // This is sent by BRP069B41 for protocol v3. Note non-standard response form
 		 // (no first byte increment). Purpose is currently unknown.
