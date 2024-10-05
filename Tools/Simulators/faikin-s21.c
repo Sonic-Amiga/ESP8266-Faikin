@@ -94,8 +94,8 @@ static struct S21State init_state = {
    .FX90     = {'F', 'F', 'F', 'F'},
    .FXA0     = {'A', '0', '4', '7'},
    .FXB0     = {'0', '0'},
-   // FXC0 and beyond are v3.40 commands; contents taken from FTXA35CV21B
    .FXC0     = {'0', '0'},
+   // FXD0 and beyond are v3.40 commands; contents taken from FTXA35CV21B
    .FXD0     = {'0', '0', '0', '0', '0', '0', '0', '0'},
    .FXE0     = {'0', '0', '0', '0', '0', '0', '0', '0'},
    .FXF0     = {'0', '0', '0', '0', '0', '0', '0', '0'},
