@@ -25,6 +25,7 @@ bit	no.swingw								// Unit does not have swing (W)
 bit 	no.swingh								// Unit does not have swing (H)
 bit	no.comfort								// Unit does not have comfort mode
 bit	no.streamer								// Unit does not have streamer mode
+bit	no.sleep								// Unit does not have sleep mode
 bit	no.powerful								// Unit does not have powerful mode
 bit	no.sensor								// Unit does not have sensor mode
 bit	no.quiet								// Unit does not have quiet mode

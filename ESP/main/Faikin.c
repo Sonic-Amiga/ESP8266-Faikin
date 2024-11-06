@@ -777,6 +777,7 @@ daikin_cn_wired_incoming_packet (const uint8_t * payload)
       report_uint8 (fan, FAIKIN_FAN_AUTO);
       report_uint8 (powerful, 0);
       report_uint8 (swingv, 0);
+      report_uint8 (sleep, 0);
       if (!noled)
          report_uint8 (led, 0);
    }
@@ -809,6 +810,7 @@ daikin_cn_wired_incoming_packet (const uint8_t * payload)
       report_float (temp, decode_bcd (payload[CNW_TEMP_OFFSET]));
       cn_wired_report_fan_speed (payload);
       report_bool (swingv, payload[CNW_SPECIALS_OFFSET] & CNW_V_SWING);
+      report_bool (sleep, payload[CNW_SPECIALS_OFFSET] & CNW_SLEEP);
       if (!noled)
          report_bool (led, payload[CNW_SPECIALS_OFFSET] & CNW_LED_ON);
       break;
@@ -851,6 +853,8 @@ daikin_cn_wired_send_modes (void)
    // Daichi uses value of 0xF0 for CNW_SPECIALS_OFFSET, but from other users we know
    // that bit 7 stands for LED, so we change it to 0x70.
    // Could be that vertical swing flag actually sits in bit 0 of 6th byte; and Daichi got it wrong.
+   if (daikin.sleep)
+      specials |= CNW_SLEEP;
    if (daikin.swingv)
       specials |= 0x70;
    if (daikin.led)
@@ -1606,6 +1610,8 @@ mqtt_client_callback (int client, const char *prefix, const char *target, const 
          jo_bool (s, "econo", checkbool ());
       if (!strcmp (suffix, "powerful"))
          jo_bool (s, "powerful", checkbool ());
+      if (!strcmp (suffix, "sleep"))
+         jo_bool (s, "sleep", checkbool ());
       if (!strcmp (suffix, "quiet"))
          jo_bool (s, "quiet", checkbool ());
       if (!strcmp (suffix, "comfort"))
@@ -1799,7 +1805,7 @@ web_root (httpd_req_t * req)
          addb ("💡", "led", "LED\nhigh");
       revk_web_send (req, "</tr>");
    }
-   if (daikin.status_known & (CONTROL_swingv | CONTROL_swingh | CONTROL_comfort))
+   if (daikin.status_known & (CONTROL_swingv | CONTROL_swingh | CONTROL_comfort | CONTROL_sleep))
    {
       revk_web_send (req, "<tr>");
       if (daikin.status_known & CONTROL_swingv)
@@ -1808,6 +1814,8 @@ web_root (httpd_req_t * req)
          addb ("↔", "swingh", "Horizontal\nSwing");
       if (daikin.status_known & CONTROL_comfort)
          addb ("🧸", "comfort", "Comfort\nmode");
+      if (daikin.status_known & CONTROL_sleep)
+	 addb ("🧸", "sleep", "Sleep");
       revk_web_send (req, "</tr>");
    }
    if (daikin.status_known & (CONTROL_streamer | CONTROL_sensor | CONTROL_quiet))
@@ -1915,6 +1923,7 @@ web_root (httpd_req_t * req)
                   "h('remote',!o.remote);"      //
                   "b('swingh',o.swingh);"       //
                   "b('swingv',o.swingv);"       //
+                  "b('sleep',o.sleep);"       //
                   "b('econo',o.econo);" //
                   "b('powerful',o.powerful);"   //
                   "b('comfort',o.comfort);"     //
@@ -2788,7 +2797,7 @@ send_ha_config (void)
          }
          // [“auto”, “low”, “medium”, “high”] is the default, no need to report
       }
-      if (daikin.status_known & (CONTROL_swingh | CONTROL_swingv | CONTROL_comfort))
+      if (daikin.status_known & (CONTROL_swingh | CONTROL_swingv | CONTROL_comfort | CONTROL_sleep))
       {
          jo_string (j, "swing_mode_cmd_t", "~/swing");
          jo_string (j, "swing_mode_stat_t", hastatus);
@@ -2803,6 +2812,8 @@ send_ha_config (void)
             jo_string (j, NULL, "H+V");
          if (daikin.status_known & CONTROL_comfort)
             jo_string (j, NULL, "C");
+         if (daikin.status_known & CONTROL_sleep)
+            jo_string (j, NULL, "SLP");
          jo_close (j);
       }
       if (daikin.status_known & (CONTROL_econo | CONTROL_powerful))
@@ -2832,6 +2843,7 @@ send_ha_config (void)
    addswitch (haswitches && (daikin.status_known & CONTROL_sensor), "sensor", "Sensor mode", "mdi:motion-sensor");
    addswitch (haswitches && (daikin.status_known & CONTROL_powerful), "powerful", "Powerful", "mdi:arm-flex");
    addswitch (haswitches && (daikin.status_known & CONTROL_comfort), "comfort", "Comfort mode", "mdi:teddy-bear");
+   addswitch (haswitches && (daikin.status_known & CONTROL_sleep), "sleep", "Sleep mode", "mdi:bed");
    addswitch (haswitches && (daikin.status_known & CONTROL_quiet), "quiet", "Quiet outdoor", "mdi:volume-minus");
    addswitch (haswitches && (daikin.status_known & CONTROL_econo), "econo", "Econo mode", "mdi:home-battery");
 #ifdef ELA
@@ -3002,9 +3014,9 @@ revk_state_extra (jo_t j)
       jo_bool (j, "powerful", daikin.powerful);
    if (daikin.status_known & CONTROL_sensor)
       jo_bool (j, "sensor", daikin.sensor);
-   if (daikin.status_known & (CONTROL_swingh | CONTROL_swingv | CONTROL_comfort))
+   if (daikin.status_known & (CONTROL_swingh | CONTROL_swingv | CONTROL_comfort | CONTROL_sleep))
       jo_string (j, "swing",
-                 daikin.comfort ? "C" : daikin.swingh & daikin.swingv ? "H+V" : daikin.swingh ? "H" : daikin.swingv ? "V" : "off");
+                 daikin.comfort ? "C" : daikin.swingh & daikin.swingv ? "H+V" : daikin.swingh ? "H" : daikin.swingv ? "V" : daikin.sleep ? "SLP" : "off");
    if (daikin.status_known & (CONTROL_econo | CONTROL_powerful))
       jo_string (j, "preset", daikin.econo ? "eco" : daikin.powerful ? "boost" : nohomepreset ? "none" : "home");       // Limited modes
 }
