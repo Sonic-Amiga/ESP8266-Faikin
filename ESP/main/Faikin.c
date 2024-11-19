@@ -851,12 +851,13 @@ daikin_cn_wired_send_modes (void)
    // the conditioner doesn't understand it.
    // Here we're replicating what Daichi controller does, with one little exception.
    // Daichi uses value of 0xF0 for CNW_SPECIALS_OFFSET, but from other users we know
-   // that bit 7 stands for LED, so we change it to 0x70.
+   // that bit 7 stands for LED, and bit 5 stands for comfortable sleep, so we change
+   // it to 0x50.
    // Could be that vertical swing flag actually sits in bit 0 of 6th byte; and Daichi got it wrong.
    if (daikin.sleep)
       specials |= CNW_SLEEP;
    if (daikin.swingv)
-      specials |= 0x70;
+      specials |= 0x50;
    if (daikin.led)
       specials |= CNW_LED_ON;
 
