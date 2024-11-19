@@ -32,6 +32,7 @@
 // Special mode flags
 #define CNW_LED_ON  0x80
 #define CNW_V_SWING 0x10
+#define CNW_SLEEP 0x20
 
 // Packet types
 #define CNW_TYPE_MASK     0x0F
