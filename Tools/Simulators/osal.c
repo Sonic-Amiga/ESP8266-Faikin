@@ -27,19 +27,6 @@ int set_serial(int p, unsigned int speed, unsigned int bits, unsigned int parity
    return 0;
 }
 
-// This implementation is not tested, sorry
-int wait_read(int p, unsigned int timeout)
-{
-    DWORD r = WaitForSingleObject((HANDLE)_get_osfhandle(p), timeout);
-
-    if (r == WAIT_OBJECT_0)
-        return 1;
-    else if (r == WAIT_TIMEOUT)
-        return 0;
-    else
-        return -1;
-}
-
 static HANDLE hMapFile;
 
 void *create_shmem(const char *name, void *data, unsigned int len)
@@ -126,19 +113,7 @@ int set_serial(int p, unsigned int speed, unsigned int bits, unsigned int parity
    return 0;
 }
 
-int wait_read(int p, unsigned int timeout)
-{
-    fd_set          r;
-    FD_ZERO(&r);
-    FD_SET(p, &r);
-    // Timeout is specified in milliseconds
-    struct timeval  tv = {0, timeout * 1000};
-    
-    return select(p + 1, &r, NULL, NULL, &tv);
-}
-
 static int shm_fd;
-static int owner;
 
 void *create_shmem_internal(const char *name, unsigned int len, int oflag)
 {

@@ -47,6 +47,8 @@ void acsend(unsigned char cmd, const unsigned char *payload, int len) {
     write(p, buf, len + 6);
 }
 
+static const inter_char_timeout = 10;
+
 int
 main(int argc, const char *argv[])
 {
@@ -121,7 +123,11 @@ main(int argc, const char *argv[])
    }
 
    set_serial(p, 9600, CS8, EVENPARITY, TWOSTOPBITS);
-
+#ifdef WIN32
+   COMMTIMEOUTS timeouts = {0};
+   timeouts.ReadIntervalTimeout = inter_char_timeout;
+   SetCommTimeouts((HANDLE)_get_osfhandle(p), &timeouts);
+#endif
    while (1)
    {
       unsigned char  *payload = NULL,
@@ -129,9 +135,18 @@ main(int argc, const char *argv[])
       int             len = 0;
       {
          unsigned char   buf[256];
+#ifdef WIN32
+         len = read(p, buf, sizeof(buf));
+#else
          while (len < sizeof(buf))
          {
-            int l = wait_read(p, len  ? 100 : 10);
+            fd_set          r;
+            int l;
+            struct timeval  tv = {0, len ? 100000 : inter_char_timeout * 1000};
+
+            FD_ZERO(&r);
+            FD_SET(p, &r);    
+            l = select(p + 1, &r, NULL, NULL, &tv);
             if (l <= 0)
                break;
             l = read(p, buf + len, sizeof(buf) - len);
@@ -143,6 +158,7 @@ main(int argc, const char *argv[])
          }
          if (!len)
             continue;
+#endif
          if (dump)
          {
             printf("[31mRx");
