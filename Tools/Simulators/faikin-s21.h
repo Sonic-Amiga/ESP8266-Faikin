@@ -76,6 +76,8 @@ struct S21State
     unsigned char FX61[2];
     unsigned char FX71[2];
     unsigned char FX81[2];
+    unsigned char Rz52[2];
+    unsigned char Rz72[2];
 };
 
 // POSIX shm requires the name to start with '/' for portability reasons.

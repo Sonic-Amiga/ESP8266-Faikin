@@ -279,6 +279,8 @@ void state_options_help(void)
     RAW_OPTION(FX61);
     RAW_OPTION(FX71);
     RAW_OPTION(FX81);
+    RAW_OPTION(Rz52);
+    RAW_OPTION(Rz72);
     printf("Supported boolean values: 'on', 'true', '1', 'off', 'false', '0'\n"
            "Integer values can be prefixed with 0x for hex or 0 for octal\n"
            "Enum can also be specified as raw integer value for experimental purposes\n"
@@ -380,6 +382,8 @@ int parse_item(int argc, const char **argv, struct S21State *state)
     PARSE_RAW(FX61)
     PARSE_RAW(FX71)
     PARSE_RAW(FX81)
+    PARSE_RAW(Rz52)
+    PARSE_RAW(Rz72)
     else {
         fprintf(stderr, "Unknown option %s\n", opt);
         return -1;

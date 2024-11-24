@@ -108,6 +108,8 @@ static struct S21State init_state = {
    .FX61     = {'C', '6'},
    .FX71     = {'0', '0'},
    .FX81     = {'2', '0'},
+   .Rz52     = {'4', '0'},
+   .Rz72     = {'2', '3'}
 };
 
 static void usage(const char *progname)
@@ -970,6 +972,24 @@ main(int argc, const char *argv[])
 			break;
 		 default:
 		    // Respond NAK to an unknown command. My FTXF20D does the same.
+		    s21_nak(p, buf, len);
+		    continue;
+		 }
+	  } else if (len >= S21_MIN_V3_PKT_LEN && buf[S21_CMD0_OFFSET] == 'R' && buf[S21_CMD1_OFFSET] == 'z' &&
+	             buf[S21_V3_CMD3_OFFSET] == '2') {
+		 // Rz?2 commands. There's actually a whole range of Rz, but we're currently
+		 // only simulating two of these, which are queried by BRP069C42 controller
+		 // in attempt to get it working with us.
+		 // These conform to v3 conventions (4-char code), but are also supported by
+		 // at least v2 conditioners. Response length is 2 bytes.
+		 switch (buf[S21_V3_CMD2_OFFSET]) {
+		 case '5':
+		 	unknown_v3_cmd(p, response, buf, state->Rz52, 2);
+			break;
+		 case '7':
+		 	unknown_v3_cmd(p, response, buf, state->Rz72, 2);
+			break;
+		 default:
 		    s21_nak(p, buf, len);
 		    continue;
 		 }
