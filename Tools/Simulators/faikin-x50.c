@@ -47,7 +47,7 @@ void acsend(unsigned char cmd, const unsigned char *payload, int len) {
     write(p, buf, len + 6);
 }
 
-static const inter_char_timeout = 10;
+static const int inter_char_timeout = 10;
 
 int
 main(int argc, const char *argv[])
